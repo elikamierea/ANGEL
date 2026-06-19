@@ -1,0 +1,676 @@
+﻿<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ANGEL Minimal GUI MVP</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="topbar">
+      <div class="menu-bar" id="menu-bar">
+        <div class="menu-item" data-menu="file">
+          <button class="menu-trigger" type="button" data-i18n="topbar.file">File</button>
+          <div class="menu-dropdown" id="menu-file" role="menu">
+            <button id="menu-new-project" type="button" role="menuitem" data-i18n="topbar.file.newProject">New Project</button>
+            <button id="menu-open" type="button" role="menuitem" data-i18n="topbar.file.open">Open</button>
+            <button id="menu-save" type="button" role="menuitem" data-i18n="topbar.file.save">Save</button>
+            <button id="menu-save-as" type="button" role="menuitem" data-i18n="topbar.file.saveAs">Save As</button>
+          </div>
+        </div>
+
+        <div class="menu-item" data-menu="edit">
+          <button class="menu-trigger" type="button" data-i18n="topbar.edit">Edit</button>
+          <div class="menu-dropdown" id="menu-edit" role="menu">
+            <button id="menu-undo" type="button" role="menuitem" data-i18n="topbar.edit.undo">Undo (Ctrl+Z)</button>
+            <button id="menu-redo" type="button" role="menuitem" data-i18n="topbar.edit.redo">Redo (Ctrl+Y)</button>
+            <button id="menu-cut" type="button" role="menuitem" data-i18n="topbar.edit.cut">Cut (Ctrl+X)</button>
+            <button id="menu-copy" type="button" role="menuitem" data-i18n="topbar.edit.copy">Copy (Ctrl+C)</button>
+            <button id="menu-paste" type="button" role="menuitem" data-i18n="topbar.edit.paste">Paste (Ctrl+V)</button>
+          </div>
+        </div>
+
+        <div class="menu-item" data-menu="view">
+          <button class="menu-trigger" type="button" data-i18n="topbar.view">View</button>
+          <div class="menu-dropdown" id="menu-view" role="menu">
+            <button id="menu-inspector" type="button" role="menuitem" data-i18n="topbar.view.toggleInspector">Toggle Inspector</button>
+            <button id="menu-project-browser" type="button" role="menuitem" data-i18n="topbar.view.toggleProjectBrowser">Toggle Project Browser</button>
+            <button id="menu-agent-bar" type="button" role="menuitem" data-i18n="topbar.view.toggleAgentBar">Toggle Agent Bar</button>
+          </div>
+        </div>
+
+        <div class="menu-item" data-menu="settings">
+          <button class="menu-trigger" type="button" data-i18n="topbar.settings">Settings</button>
+          <div class="menu-dropdown" id="menu-settings" role="menu">
+            <button id="menu-theme" type="button" role="menuitem" data-i18n="topbar.settings.theme">Theme</button>
+            <button id="menu-agent-model" type="button" role="menuitem" data-i18n="topbar.settings.agentModel">Agent Model</button>
+            <button id="menu-language" type="button" role="menuitem" data-i18n="topbar.settings.language">Language</button>
+          </div>
+        </div>
+
+        <div class="menu-item" data-menu="execute">
+          <button class="menu-trigger" type="button" data-i18n="topbar.execute">Execute</button>
+          <div class="menu-dropdown" id="menu-execute" role="menu">
+            <button id="menu-compile" type="button" role="menuitem" data-i18n="topbar.execute.compile">Compile Project</button>
+            <button id="menu-run" type="button" role="menuitem" data-i18n="topbar.execute.run">Run Project</button>
+            <button id="menu-run-debug" type="button" role="menuitem" data-i18n="topbar.execute.runDebug">Run Project (Debug)</button>
+            <button id="menu-run-test" type="button" role="menuitem" data-i18n="topbar.execute.runTest">Run Test</button>
+          </div>
+        </div>
+
+        <div class="menu-item" data-menu="resource">
+          <button class="menu-trigger" type="button" data-i18n="topbar.resource">Resource</button>
+          <div class="menu-dropdown" id="menu-resource" role="menu">
+            <button id="menu-create-sprite" type="button" role="menuitem" data-i18n="topbar.resource.createSprite">Create Sprite</button>
+            <button id="menu-create-font" type="button" role="menuitem" data-i18n="topbar.resource.createFont">Create Font</button>
+          </div>
+        </div>
+
+        <div class="menu-item" data-menu="help">
+          <button class="menu-trigger" type="button" data-i18n="topbar.help">Help</button>
+          <div class="menu-dropdown" id="menu-help" role="menu">
+            <button id="menu-about" type="button" role="menuitem" data-i18n="topbar.help.about">About</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="topbar-right" id="topbar-right">
+        <span id="chip-revision" class="chip"></span>
+        <span id="chip-unsaved" class="chip"></span>
+        <span id="chip-conflicts" class="chip"></span>
+        <span id="chip-agent" class="chip"></span>
+        <select id="layer-select" class="layer-select hidden" aria-hidden="true">
+          <option value="L0" selected>L0</option>
+          <option value="L1">L1</option>
+          <option value="L2">L2</option>
+          <option value="L3">L3</option>
+        </select>
+
+      </div>
+    </div>
+
+    <div class="app" id="app-root">
+      <aside class="sidebar" id="left-sidebar">
+        <div class="file-browser-tabs" id="file-browser-tabs" aria-label="file browser tab switcher">
+          <button type="button" class="file-browser-tab-arrow" data-file-tab-prev aria-label="Previous tab" data-i18n="ui.symbol.prev"><</button>
+          <span class="file-browser-tab-current" data-file-tab-current>All Files</span>
+          <button type="button" class="file-browser-tab-arrow" data-file-tab-next aria-label="Next tab" data-i18n="ui.symbol.next">></button>
+        </div>
+
+        <div class="sidebar-controls" id="sidebar-controls">
+          <span id="file-browser-info" class="file-info">No folder</span>
+          <button id="file-refresh" type="button">Refresh</button>
+        </div>
+
+        <div id="file-browser-empty" class="empty">
+          <p>No project folder selected.</p>
+          <p>Use New Project (folder) or Open to begin.</p>
+        </div>
+        <ul id="file-browser" class="file-tree hidden"></ul>
+        <div id="sidebar-resize" class="sidebar-resize" title="Drag to resize"></div>
+      </aside>
+
+      <main class="main">
+        <header class="toolbar">
+          <button id="reset-view">Reset View</button>
+          <span id="status">Ready</span>
+        </header>
+        <div id="layer-quick-switch" class="layer-quick-switch" aria-label="Layer quick switch"></div>
+        <canvas id="graph-canvas" width="1200" height="760"></canvas>
+      </main>
+
+      <aside class="right-panel open" id="right-panel">
+        <div id="right-panel-resize" class="right-panel-resize" title="Drag to resize"></div>
+        <h3>Inspector</h3>
+
+        <section id="empty-selection" class="panel-card">
+          <strong>No node selected</strong>
+          <p>Select a node in the file tree or on the canvas, then edit it here.</p>
+        </section>
+
+        <section id="editor-form" class="panel-card hidden">
+          <h4>Node Editor</h4>
+          <label>Name<input id="field-name" /></label>
+          <label>Synopsis<input id="field-summary" /></label>
+          <label>Detail<textarea id="field-detail" rows="3"></textarea></label>
+          <label>Color Index
+            <select id="field-color-index">
+              <option value="0">0</option>
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+              <option value="6">6</option>
+              <option value="7">7</option>
+              <option value="8">8</option>
+              <option value="9">9</option>
+              <option value="10">10</option>
+              <option value="11">11</option>
+              <option value="12">12</option>
+              <option value="13">13</option>
+              <option value="14">14</option>
+              <option value="15">15</option>
+            </select>
+          </label>
+          <input id="field-expected-revision" type="hidden" />
+          <div id="lock-message" class="lock hidden"></div>
+          <div class="row">
+            <button id="save-selection">Save Selection</button>
+            <button id="btn-reload" type="button">Reload</button>
+            <button id="btn-reapply" type="button">Reapply</button>
+          </div>
+        </section>
+
+        <section id="edge-editor" class="panel-card hidden">
+          <h4>Edge Editor</h4>
+          <label>Edge ID<input id="edge-id" disabled /></label>
+          <label>Relation Template
+            <input id="edge-relation" placeholder="A depends on B" />
+          </label>
+          <label>Label<input id="edge-label" placeholder="optional" /></label>
+          <div id="edge-visual-controls">
+            <label>Path Style
+              <select id="edge-path-style">
+                <option value="straight">straight</option>
+                <option value="orthogonal">orthogonal</option>
+                <option value="curve">curve</option>
+              </select>
+            </label>
+            <label>Stroke Style
+              <select id="edge-stroke-style">
+                <option value="solid">solid</option>
+                <option value="dashed">dashed</option>
+                <option value="dotted">dotted</option>
+              </select>
+            </label>
+            <label class="inline-check"><input id="edge-arrow-from" type="checkbox" /> <span>Arrow at A (from)</span></label>
+            <label class="inline-check"><input id="edge-arrow-to" type="checkbox" /> <span>Arrow at B (to)</span></label>
+          </div>
+          <label>Description
+            <textarea id="edge-description" rows="3" placeholder="(optional)"></textarea>
+          </label>
+          <div class="row">
+            <button id="save-edge">Save Edge</button>
+          </div>
+        </section>
+
+        <section id="block-binding-panel" class="panel-card">
+          <h4>Resource Bindings</h4>
+          <div class="binding-form">
+            <label>Path<input id="binding-path" /></label>
+            <label>Description<input id="binding-block" /></label>
+            <div class="row">
+              <button id="binding-add" type="button">Add Binding</button>
+            </div>
+          </div>
+          <ul id="block-binding"></ul>
+        </section>
+
+        <section class="panel-card">
+          <h4>Edge Connections</h4>
+          <ul id="edge-list"></ul>
+        </section>
+
+
+        <section class="panel-card hidden" aria-hidden="true">
+          <h4>Conflicts</h4>
+          <ul id="conflict-list"></ul>
+        </section>
+      </aside>
+    </div>
+
+    <section id="agent-chat-window" class="agent-chat-window" aria-label="Agent Chat Window">
+      <div id="agent-chat-titlebar" class="agent-chat-titlebar">
+        <span id="agent-chat-status">Designer (Idle)</span>
+        <div class="agent-chat-title-actions">
+          <button id="agent-chat-toggle" type="button" title="Minimize / Restore">-</button>
+        </div>
+      </div>
+      <div id="agent-chat-body" class="agent-chat-body">
+        <aside id="agent-chat-sidebar" class="agent-chat-sidebar"></aside>
+        <div class="agent-chat-main">
+          <div class="agent-chat-toolbar">
+            <button id="agent-chat-save-memory" type="button" title="Inject a system instruction to organize memory">Save Memory</button>
+
+            <button id="agent-chat-export" type="button" title="Export chat history and tool calls as JSON">Export Chat JSON</button>
+          </div>
+          <div id="agent-chat-timeline" class="agent-chat-timeline"></div>
+          <div id="agent-chat-composer-resize" class="agent-chat-composer-resize" title="Drag to resize input area"></div>
+          <div id="agent-chat-image-preview" class="agent-chat-image-preview hidden" aria-live="polite"></div>
+          <div class="agent-chat-composer" id="agent-chat-composer">
+            <textarea id="agent-chat-input" rows="2" placeholder="Type message... (Enter=Send, Shift+Enter=New line)"></textarea>
+            <button id="agent-chat-send" type="button">Send</button>
+          </div>
+        </div>
+      </div>
+      <div id="agent-chat-resize" class="agent-chat-resize" title="Resize"></div>
+    </section>
+
+    <div id="agent-chat-image-lightbox" class="agent-chat-image-lightbox hidden" aria-hidden="true">
+      <img id="agent-chat-image-lightbox-img" alt="Image preview" />
+    </div>
+
+    <section id="theme-modal" class="modal hidden" aria-hidden="true" role="dialog" aria-labelledby="theme-title">
+      <div class="modal-backdrop" data-close-theme="1"></div>
+      <div class="modal-panel">
+        <div class="modal-head">
+          <h3 id="theme-title" data-i18n="modal.theme.title">Theme Settings</h3>
+          <button id="theme-close" type="button" data-i18n="ui.symbol.close">X</button>
+        </div>
+        <div class="modal-body theme-modal-body">
+          <div class="theme-block">
+            <label><span data-i18n="modal.theme.presetTheme">Preset Theme</span>
+              <select id="theme-preset-select">
+                <option value="default">Default</option>
+              </select>
+            </label>
+            <p class="modal-note" data-i18n="modal.theme.presetNote">Preset is only a starting point; edits below affect only the current theme snapshot and do not write back to the preset.</p>
+          </div>
+
+          <div class="theme-block theme-block-colors">
+            <div class="theme-color-group">
+              <h4 data-i18n="modal.theme.section.base">Base</h4>
+              <div class="theme-color-grid">
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.appBackground">App Background</span><input id="theme-bg-body" type="color" value="#111111" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.mainText">Main Text</span><input id="theme-text-main" type="color" value="#eeeeee" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.topbarBackground">Topbar Background</span><input id="theme-topbar-bg" type="color" value="#121212" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.toolbarBackground">Toolbar Background</span><input id="theme-toolbar-bg" type="color" value="#181818" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.mainBorder">Main Border</span><input id="theme-border-main" type="color" value="#2a2a2a" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.mutedText">Muted Text</span><input id="theme-muted-text" type="color" value="#9fb0c2" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.menuHoverBg">Menu Hover Bg</span><input id="theme-menu-hover-bg" type="color" value="#253140" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.menuHoverBorder">Menu Hover Border</span><input id="theme-menu-hover-border" type="color" value="#4c5f77" /></label>
+              </div>
+            </div>
+            <div class="theme-color-group">
+              <h4 data-i18n="modal.theme.section.sidebar">Sidebar</h4>
+              <div class="theme-color-grid">
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.sidebarBackground">Sidebar Background</span><input id="theme-sidebar-bg" type="color" value="#161616" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.itemBorder">Item Border</span><input id="theme-sidebar-item-border" type="color" value="#333333" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.itemActiveBorder">Item Active Border</span><input id="theme-sidebar-item-active-border" type="color" value="#6ea8fe" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.itemActiveBackground">Item Active Background</span><input id="theme-sidebar-item-active-bg" type="color" value="#1d2a3d" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.metaText">Meta Text</span><input id="theme-sidebar-meta-text" type="color" value="#9fb0c2" /></label>
+              </div>
+            </div>
+            <div class="theme-color-group">
+              <h4 data-i18n="modal.theme.section.panelsInputs">Panels & Inputs</h4>
+              <div class="theme-color-grid">
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.rightPanelBackground">Right Panel Background</span><input id="theme-right-panel-bg" type="color" value="#141414" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.panelCardBackground">Panel Card Background</span><input id="theme-panel-card-bg" type="color" value="#171b22" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.panelCardBorder">Panel Card Border</span><input id="theme-panel-card-border" type="color" value="#30353f" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.panelItemBorder">Panel Item Border</span><input id="theme-panel-item-border" type="color" value="#3a3a3a" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.inputBackground">Input Background</span><input id="theme-input-bg" type="color" value="#101318" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.inputText">Input Text</span><input id="theme-input-text" type="color" value="#e7edf7" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.inputBorder">Input Border</span><input id="theme-input-border" type="color" value="#3a4453" /></label>
+              </div>
+            </div>
+            <div class="theme-color-group">
+              <h4 data-i18n="modal.theme.section.chipsStatus">Chips & Status</h4>
+              <div class="theme-color-grid">
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.chipBackground">Chip Background</span><input id="theme-chip-bg" type="color" value="#1b1b1b" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.chipText">Chip Text</span><input id="theme-chip-text" type="color" value="#dddddd" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.chipBorder">Chip Border</span><input id="theme-chip-border" type="color" value="#3a3a3a" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.protectedChipBorder">Protected Chip Border</span><input id="theme-chip-protected-border" type="color" value="#e8b563" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.protectedChipText">Protected Chip Text</span><input id="theme-chip-protected-text" type="color" value="#ffd899" /></label>
+              </div>
+            </div>
+            <div class="theme-color-group">
+              <h4 data-i18n="modal.theme.section.agentChat">Agent Chat</h4>
+              <div class="theme-color-grid">
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.chatWindowBg">Chat Window Bg</span><input id="theme-agent-chat-bg" type="color" value="#131a24" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.chatWindowBorder">Chat Window Border</span><input id="theme-agent-chat-border" type="color" value="#30353f" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.chatTitleBg">Chat Title Bg</span><input id="theme-agent-chat-title-bg" type="color" value="#172233" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.chatTitleBorder">Chat Title Border</span><input id="theme-agent-chat-title-border" type="color" value="#253041" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.chatSidebarBg">Chat Sidebar Bg</span><input id="theme-agent-chat-sidebar-bg" type="color" value="#121a27" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.chatButtonBg">Chat Button Bg</span><input id="theme-agent-chat-btn-bg" type="color" value="#1f2f46" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.chatButtonBorder">Chat Button Border</span><input id="theme-agent-chat-btn-border" type="color" value="#3a4c66" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.chatButtonText">Chat Button Text</span><input id="theme-agent-chat-btn-text" type="color" value="#d9e7ff" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.chatInputBg">Chat Input Bg</span><input id="theme-agent-chat-input-bg" type="color" value="#0f151f" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.chatInputBorder">Chat Input Border</span><input id="theme-agent-chat-input-border" type="color" value="#33425b" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.chatInputText">Chat Input Text</span><input id="theme-agent-chat-input-text" type="color" value="#e6f0ff" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.bubbleAgentBg">Bubble Agent Bg</span><input id="theme-agent-chat-bubble-agent-bg" type="color" value="#20324b" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.bubbleAgentBorder">Bubble Agent Border</span><input id="theme-agent-chat-bubble-agent-border" type="color" value="#33527a" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.bubbleUserBg">Bubble User Bg</span><input id="theme-agent-chat-bubble-user-bg" type="color" value="#2a3e25" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.bubbleUserBorder">Bubble User Border</span><input id="theme-agent-chat-bubble-user-border" type="color" value="#496d3f" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.bubbleSystemBg">Bubble System Bg</span><input id="theme-agent-chat-bubble-system-bg" type="color" value="#3a2a18" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.bubbleSystemBorder">Bubble System Border</span><input id="theme-agent-chat-bubble-system-border" type="color" value="#8b6637" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.bubbleSystemText">Bubble System Text</span><input id="theme-agent-chat-bubble-system-text" type="color" value="#ffe5b8" /></label>
+              </div>
+            </div>
+            <div class="theme-color-group">
+              <h4 data-i18n="modal.theme.section.graph">Graph</h4>
+              <div class="theme-color-grid">
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.graphEdge">Graph Edge</span><input id="theme-graph-edge" type="color" value="#5f6b7a" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.graphEdgeSelected">Graph Edge Selected</span><input id="theme-graph-edge-selected" type="color" value="#8dc8ff" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.graphNodeText">Graph Node Text</span><input id="theme-node-text" type="color" value="#e8eef7" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.nodeFillSelected">Node Fill Selected</span><input id="theme-node-fill-selected" type="color" value="#2f5d95" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.nodeStrokeSelected">Node Stroke Selected</span><input id="theme-node-stroke-selected" type="color" value="#8cc2ff" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.handleFill">Handle Fill</span><input id="theme-handle-fill" type="color" value="#d8ecff" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.handleStroke">Handle Stroke</span><input id="theme-handle-stroke" type="color" value="#2e6fa7" /></label>
+              </div>
+              <label><span data-i18n="modal.theme.field.gridOpacity">Grid Opacity</span>
+                <input id="theme-grid-opacity" type="range" min="0" max="0.3" step="0.01" value="0.08" />
+              </label>
+              <label><span data-i18n="modal.theme.field.nodeBaseOpacity">Node Base Opacity</span>
+                <input id="theme-node-base-opacity" type="range" min="0.1" max="1" step="0.01" value="1" />
+              </label>
+            </div>
+            <div class="theme-color-group">
+              <h4 data-i18n="modal.theme.section.systemPreview">System / Overlays / Preview</h4>
+              <div class="theme-color-grid">
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.menuSeparator">Menu Separator</span><input id="theme-menu-separator" type="color" value="#333b47" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.agentResizeHandle">Agent Resize Handle</span><input id="theme-agent-chat-resize-handle" type="color" value="#4f6587" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.modalHeadBorder">Modal Head Border</span><input id="theme-modal-head-border" type="color" value="#2f3b4d" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.modalButtonBorder">Modal Button Border</span><input id="theme-modal-btn-border" type="color" value="#3f4e65" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.modalButtonBg">Modal Button Bg</span><input id="theme-modal-btn-bg" type="color" value="#1f2b3b" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.modalButtonText">Modal Button Text</span><input id="theme-modal-btn-text" type="color" value="#e8eef7" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.modalNoteText">Modal Note Text</span><input id="theme-modal-note-text" type="color" value="#b8c5d8" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.themeSwatchBorder">Theme Swatch Border</span><input id="theme-theme-swatch-border" type="color" value="#4a5568" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.themePaletteCardBorder">Theme Palette Card Border</span><input id="theme-theme-palette-card-border" type="color" value="#2f3b4d" /></label>
+            <label class="theme-color-field"><span data-i18n="modal.theme.field.previewBorder">Preview Border</span><input id="theme-preview-border" type="color" value="#33425b" /></label>
+            <label class="theme-color-field"><span data-i18n="modal.theme.field.previewBg">Preview Bg</span><input id="theme-preview-bg" type="color" value="#0f151f" /></label>
+            <label class="theme-color-field"><span data-i18n="modal.theme.field.helpLinkText">Help Link Text</span><input id="theme-help-link-text" type="color" value="#8dc8ff" /></label>
+            <label class="theme-color-field"><span data-i18n="modal.theme.field.spritePreviewBg">Sprite Preview Bg</span><input id="theme-sprite-preview-bg" type="color" value="#0f151f" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.spritePreviewText">Sprite Preview Text</span><input id="theme-sprite-preview-text" type="color" value="#9fb0c2" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.spritePreviewBorder">Sprite Preview Border</span><input id="theme-sprite-preview-border" type="color" value="#3a4c66" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.spritePreviewError">Sprite Preview Error</span><input id="theme-sprite-preview-error" type="color" value="#ff5a5a" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.fontPreviewBg">Font Preview Bg</span><input id="theme-font-preview-bg" type="color" value="#0f151f" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.fontPreviewText">Font Preview Text</span><input id="theme-font-preview-text" type="color" value="#e8eef7" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.fontGlyphFill">Font Glyph Fill</span><input id="theme-font-glyph-fill" type="color" value="#ffffff" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.fileTreeHover">File Tree Hover</span><input id="theme-file-tree-hover-bg" type="color" value="#ffffff" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.modalBackdrop">Modal Backdrop</span><input id="theme-modal-backdrop-bg" type="color" value="#000000" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.graphDragStroke">Graph Drag Stroke</span><input id="theme-graph-drag-preview-stroke" type="color" value="#8dc8ff" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.graphSelectFill">Graph Select Fill</span><input id="theme-graph-select-fill" type="color" value="#60a6ff" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.graphSelectFillAlt">Graph Select Fill Alt</span><input id="theme-graph-select-fill-alt" type="color" value="#60a6ff" /></label>
+                <label class="theme-color-field"><span data-i18n="modal.theme.field.graphMirrorStroke">Graph Mirror Stroke</span><input id="theme-graph-mirror-preview-stroke" type="color" value="#ffd778" /></label>
+              </div>
+            </div>
+          </div>
+
+          <div class="theme-block">
+            <div id="theme-palette-grid" class="theme-palette-grid"></div>
+          </div>
+
+          <div class="theme-block">
+            <label class="theme-inline-check" for="theme-bg-image-enabled">
+              <input id="theme-bg-image-enabled" type="checkbox" />
+              <span data-i18n="modal.theme.bgImageEnabled">Use image as canvas background</span>
+            </label>
+            <div id="theme-bg-image-options">
+              <label><span data-i18n="modal.theme.field.backgroundImage">Background Image</span>
+                <input id="theme-bg-image-file" type="file" accept="image/*" />
+              </label>
+              <label><span data-i18n="modal.theme.field.backgroundImageOpacity">Background Image Opacity</span>
+                <input id="theme-bg-image-opacity" type="range" min="0" max="1" step="0.05" value="1" />
+              </label>
+              <div class="row">
+                <button id="theme-bg-image-clear" type="button" data-i18n="modal.theme.clearImage">Clear Image</button>
+              </div>
+              <div id="theme-bg-image-preview-wrap" class="theme-image-preview-wrap hidden">
+                <img id="theme-bg-image-preview" class="theme-image-preview" alt="Theme background preview" />
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button id="theme-cancel" type="button" data-i18n="modal.common.cancel">Cancel</button>
+          <button id="theme-save" type="button" data-i18n="modal.common.save">Save</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="help-modal" class="modal hidden" aria-hidden="true" role="dialog" aria-labelledby="help-title">
+      <div class="modal-backdrop" data-close-help="1"></div>
+      <div class="modal-panel help-modal-panel">
+        <div class="modal-head">
+          <h3 id="help-title">Help</h3>
+          <button id="help-close" type="button" data-i18n="ui.symbol.close">X</button>
+        </div>
+        <div class="modal-body help-modal-body">
+          <article id="help-markdown" class="help-markdown" aria-live="polite"></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="agent-model-modal" class="modal hidden" aria-hidden="true" role="dialog" aria-labelledby="agent-model-title">
+      <div class="modal-backdrop" data-close-agent-model="1"></div>
+      <div class="modal-panel">
+        <div class="modal-head">
+          <h3 id="agent-model-title" data-i18n="modal.agentModel.title">Agent Model Settings</h3>
+          <button id="agent-model-close" type="button" data-i18n="ui.symbol.close">X</button>
+        </div>
+        <div class="modal-body">
+          <label><span data-i18n="modal.agentModel.provider">Provider</span>
+            <select id="agent-model-provider"></select>
+          </label>
+          <label><span data-i18n="modal.agentModel.method">Method</span>
+            <select id="agent-model-method"></select>
+          </label>
+          <label><span data-i18n="modal.agentModel.defaultModel">Default Model</span>
+            <select id="agent-model-name"></select>
+          </label>
+          <label><span data-i18n="modal.agentModel.imageGenerationModel">Image Generation Model</span>
+            <select id="agent-model-image-name"></select>
+          </label>
+          <label id="agent-model-openai-key-row"><span data-i18n="modal.agentModel.apiKey">API Key</span>
+            <input id="agent-model-openai-key" type="password" data-i18n-placeholder="modal.agentModel.apiKeyPlaceholder" placeholder="Enter provider API key" autocomplete="off" />
+          </label>
+          <label id="agent-model-openai-oauth-row" class="hidden"><span data-i18n="modal.agentModel.oauthAccessToken">OpenAI OAuth Access Token</span>
+            <input id="agent-model-openai-oauth-token" type="password" data-i18n-placeholder="modal.agentModel.oauthAccessTokenPlaceholder" placeholder="Bearer access token" autocomplete="off" />
+          </label>
+          <div id="agent-model-openai-oauth-actions" class="hidden agent-model-oauth-actions">
+            <button id="agent-model-openai-oauth-connect" type="button" data-i18n="modal.agentModel.connectOauth">Connect OpenAI OAuth</button>
+            <button id="agent-model-openai-oauth-refresh" type="button" data-i18n="modal.agentModel.refreshToken">Refresh Token</button>
+          </div>
+          <label class="inline-check"><input id="agent-debug-raw-toggle" type="checkbox" /> <span data-i18n="modal.agentModel.showRawOutput">Show raw model output in chat</span></label>
+          <label class="inline-check"><input id="agent-humanize-toggle" type="checkbox" /> <span data-i18n="modal.agentModel.enableHumanize">Enable Humanize prompt addon</span></label>
+          <p id="agent-model-note" class="modal-note"></p>
+        </div>
+        <div class="modal-actions">
+          <button id="agent-model-cancel" type="button" data-i18n="modal.common.cancel">Cancel</button>
+          <button id="agent-model-save" type="button" data-i18n="modal.common.save">Save</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="language-modal" class="modal hidden" aria-hidden="true" role="dialog" aria-labelledby="language-title">
+      <div class="modal-backdrop" data-close-language="1"></div>
+      <div class="modal-panel">
+        <div class="modal-head">
+          <h3 id="language-title" data-i18n="modal.language.title">Language</h3>
+          <button id="language-close" type="button" data-i18n="ui.symbol.close">X</button>
+        </div>
+        <div class="modal-body">
+          <label><span data-i18n="modal.language.label">Language</span>
+            <select id="language-select">
+              <option value="en" data-i18n="topbar.language.english">English</option>
+              <option value="zh-CN" data-i18n="topbar.language.chineseSimplified">Simplified Chinese</option>
+            </select>
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button id="language-cancel" type="button" data-i18n="modal.common.cancel">Cancel</button>
+          <button id="language-save" type="button" data-i18n="modal.common.save">Save</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="sprite-modal" class="modal hidden" aria-hidden="true" role="dialog" aria-labelledby="sprite-title">
+      <div class="modal-backdrop" data-close-sprite="1"></div>
+      <div class="modal-panel">
+        <div class="modal-head">
+          <h3 id="sprite-title" data-i18n="modal.sprite.title">Create Sprite</h3>
+          <button id="sprite-close" type="button" data-i18n="ui.symbol.close">X</button>
+        </div>
+        <div class="modal-body">
+          <label><span data-i18n="modal.sprite.frames">Frames (multi-select images)</span>
+            <input id="sprite-files" type="file" accept="image/*" multiple />
+          </label>
+          <div class="sprite-path-row">
+            <label><span data-i18n="modal.sprite.path">Path (relative to project root)</span>
+              <input id="sprite-path" type="text" data-i18n-placeholder="modal.sprite.pathPlaceholder" placeholder="src/assets/sprites" />
+            </label>
+            <label><span data-i18n="modal.sprite.name">Name</span>
+              <input id="sprite-name" type="text" data-i18n-placeholder="modal.sprite.namePlaceholder" placeholder="hero_idle" />
+            </label>
+          </div>
+          <div class="sprite-pivot-row">
+            <label><span data-i18n="modal.sprite.pivotX">Pivot X</span>
+              <input id="sprite-pivot-x" type="number" step="1" value="0" />
+            </label>
+            <label><span data-i18n="modal.sprite.pivotY">Pivot Y</span>
+              <input id="sprite-pivot-y" type="number" step="1" value="0" />
+            </label>
+          </div>
+          <div class="sprite-preview-tools">
+            <button id="sprite-prev-frame" type="button" data-i18n="ui.symbol.prev"><</button>
+            <span id="sprite-frame-label">Frame 0 / 0</span>
+            <button id="sprite-next-frame" type="button" data-i18n="ui.symbol.next">></button>
+          </div>
+          <canvas id="sprite-preview-canvas" width="360" height="220"></canvas>
+          <p id="sprite-note" class="modal-note" data-i18n="modal.sprite.note">Pick frames to preview and generate sprite atlas.</p>
+        </div>
+        <div class="modal-actions">
+          <button id="sprite-cancel" type="button" data-i18n="modal.common.cancel">Cancel</button>
+          <button id="sprite-create" type="button" data-i18n="modal.sprite.create">Create</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="font-modal" class="modal hidden" aria-hidden="true" role="dialog" aria-labelledby="font-title">
+      <div class="modal-backdrop" data-close-font="1"></div>
+      <div class="modal-panel">
+        <div class="modal-head">
+          <h3 id="font-title" data-i18n="modal.font.title">Create Font</h3>
+          <button id="font-close" type="button" data-i18n="ui.symbol.close">X</button>
+        </div>
+        <div class="modal-body">
+          <label><span data-i18n="modal.font.file">Font file (.ttf/.otf/.woff/.woff2)</span>
+            <input id="font-file" type="file" accept=".ttf,.otf,.woff,.woff2,font/*" />
+          </label>
+          <div class="sprite-path-row">
+            <label><span data-i18n="modal.font.path">Path (relative to project root)</span>
+              <input id="font-path" type="text" data-i18n-placeholder="modal.font.pathPlaceholder" placeholder="src/assets/fonts" />
+            </label>
+            <label><span data-i18n="modal.font.name">Name</span>
+              <input id="font-name" type="text" data-i18n-placeholder="modal.font.namePlaceholder" placeholder="font" value="font" />
+            </label>
+          </div>
+          <div class="sprite-pivot-row">
+            <label><span data-i18n="modal.font.size">Font Size</span>
+              <input id="font-size" type="number" min="4" step="1" value="32" />
+            </label>
+            <label><span data-i18n="modal.font.hinting">Hinting</span>
+              <select id="font-hinting">
+                <option value="none" data-i18n="modal.font.hinting.none">none</option>
+                <option value="slight" data-i18n="modal.font.hinting.slight">slight</option>
+                <option value="normal" selected data-i18n="modal.font.hinting.normal">normal</option>
+                <option value="full" data-i18n="modal.font.hinting.full">full</option>
+              </select>
+            </label>
+          </div>
+          <label><span data-i18n="modal.font.antialias">Antialias</span>
+            <select id="font-antialias">
+              <option value="on" selected data-i18n="modal.font.antialias.on">on</option>
+              <option value="off" data-i18n="modal.font.antialias.off">off</option>
+            </select>
+          </label>
+          <label><span data-i18n="modal.font.charset">Charset</span>
+            <textarea id="font-charset" rows="4" data-i18n-placeholder="modal.font.charsetPlaceholder" placeholder="characters to include"></textarea>
+          </label>
+          <label><span data-i18n="modal.font.charsetImport">Import charset from text files (scan all chars and append)</span>
+            <input id="font-charset-files" type="file" accept=".txt,text/plain" multiple />
+          </label>
+          <label><span data-i18n="modal.font.previewText">Preview text</span>
+            <input id="font-preview-input" type="text" value="The quick brown fox jumps over the lazy dog." />
+          </label>
+          <label><span data-i18n="modal.font.previewScale">Preview scale (integer)</span>
+            <input id="font-preview-scale" type="number" min="1" step="1" value="1" />
+          </label>
+          <div class="font-preview-wrap">
+            <canvas id="font-preview-canvas" class="font-preview-canvas" width="320" height="96"></canvas>
+          </div>
+          <p id="font-note" class="modal-note" data-i18n="modal.font.note">Generate: _fontpageN.png + .font.txt (v2)</p>
+        </div>
+        <div class="modal-actions">
+          <button id="font-cancel" type="button" data-i18n="modal.common.cancel">Cancel</button>
+          <button id="font-create" type="button" data-i18n="modal.font.create">Create</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="new-project-modal" class="modal hidden" aria-hidden="true" role="dialog" aria-labelledby="new-project-title">
+      <div class="modal-backdrop" data-close-new-project="1"></div>
+      <div class="modal-panel">
+        <div class="modal-head">
+          <h3 id="new-project-title" data-i18n="modal.newProject.title">New Project</h3>
+          <button id="new-project-close" type="button" data-i18n="ui.symbol.close">X</button>
+        </div>
+        <div class="modal-body">
+          <label><span data-i18n="modal.newProject.template">Template</span>
+            <select id="new-project-template">
+              <option value="minimal-2layer" data-i18n="modal.newProject.template.minimal">Minimal (2 layers)</option>
+              <option value="classic-4layer" selected data-i18n="modal.newProject.template.classic">Classic (4 layers)</option>
+            </select>
+          </label>
+          <label><span data-i18n="modal.newProject.location">Location</span>
+            <input id="new-project-location" type="text" readonly data-i18n-placeholder="modal.newProject.locationPlaceholder" placeholder="No folder selected" />
+          </label>
+          <button id="new-project-choose-folder" type="button" data-i18n="modal.newProject.chooseFolder">Choose Folder</button>
+          <p class="modal-note" data-i18n="modal.newProject.note">Pick template and location first, then click Create.</p>
+        </div>
+        <div class="modal-actions">
+          <button id="new-project-cancel" type="button" data-i18n="modal.common.cancel">Cancel</button>
+          <button id="new-project-confirm" type="button" disabled data-i18n="modal.newProject.create">Create</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="run-test-modal" class="modal hidden" aria-hidden="true" role="dialog" aria-labelledby="run-test-title">
+      <div class="modal-backdrop" data-close-run-test="1"></div>
+      <div class="modal-panel">
+        <div class="modal-head">
+          <h3 id="run-test-title" data-i18n="modal.runTest.title">Run Test</h3>
+          <button id="run-test-close" type="button" data-i18n="ui.symbol.close">X</button>
+        </div>
+        <div class="modal-body">
+          <label><span data-i18n="modal.runTest.label">Enter test case name</span>
+            <input id="run-test-input" type="text" data-i18n-placeholder="modal.runTest.placeholder" placeholder="smoke" value="smoke" />
+          </label>
+          <p id="run-test-note" class="modal-note" data-i18n="modal.runTest.note">Enter test case name</p>
+        </div>
+        <div class="modal-actions">
+          <button id="run-test-cancel" type="button" data-i18n="modal.common.cancel">Cancel</button>
+          <button id="run-test-confirm" type="button" data-i18n="modal.runTest.run">Run</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="execute-fail-modal" class="modal hidden" aria-hidden="true" role="dialog" aria-labelledby="execute-fail-title">
+      <div class="modal-backdrop" data-close-execute-fail="1"></div>
+      <div class="modal-panel">
+        <div class="modal-head">
+          <h3 id="execute-fail-title" data-i18n="modal.executeFail.title">Execute Failed</h3>
+          <button id="execute-fail-close" type="button" data-i18n="ui.symbol.close">X</button>
+        </div>
+        <div class="modal-body">
+          <p id="execute-fail-message" class="modal-note" data-i18n="modal.executeFail.message">Execution failed.</p>
+          <pre id="execute-fail-detail" class="execute-fail-detail hidden"></pre>
+        </div>
+      </div>
+    </section>
+
+    <div id="canvas-context-menu" class="canvas-context-menu hidden" role="menu" aria-hidden="true">
+      <button id="ctx-transform-scale" type="button" role="menuitem">Stretch</button>
+      <button id="ctx-transform-rotate90" type="button" role="menuitem">Rotate 90</button>
+      <button id="ctx-transform-flip-h" type="button" role="menuitem">Flip Horizontal</button>
+      <button id="ctx-transform-layout" type="button" role="menuitem">Layout (ELK Auto Direction)</button>
+    </div>
+
+    <input id="project-file-input" type="file" accept=".json,application/json" class="hidden" />
+    <script src="../node_modules/elkjs/lib/elk.bundled.js"></script>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
+
+

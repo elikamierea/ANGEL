@@ -1,0 +1,26 @@
+{
+  "name": "angel-client-code",
+  "productName": "ANGEL",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "electron-main.cjs",
+  "scripts": {
+    "start:min": "tsx src/main.ts",
+    "smoke:bootstrap": "tsx src/bootstrap/phase9-bootstrap-self-check.ts",
+    "start:gui": "http-server . -p 4173 -c-1 -o /gui/",
+    "start:app": "electron .",
+    "test": "node --test \"gui/modules/**/*.test.js\"",
+    "dist": "node build-pack.cjs"
+  },
+  "devDependencies": {
+    "@electron/packager": "^18.4.0",
+    "electron": "^37.2.0",
+    "http-server": "^14.1.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  },
+  "dependencies": {
+    "elkjs": "^0.10.2"
+  }
+}

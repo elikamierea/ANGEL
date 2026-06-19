@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "templates": {
+    "default": {
+      "id": "default-2layer-v1",
+      "version": 1,
+      "layers": ["L0", "L1"],
+      "defaultActiveLayer": "L0",
+      "agents": ["programmer"],
+      "promptProfile": "minimized"
+    },
+    "default-image": {
+      "id": "default-image-2layer-v1",
+      "version": 1,
+      "layers": ["L0", "L1"],
+      "defaultActiveLayer": "L0",
+      "agents": ["programmer", "resource-provider"],
+      "promptProfile": "minimized-image"
+    },
+    "extended": {
+      "id": "extended-4layer-v1",
+      "version": 1,
+      "layers": ["L0", "L1", "L2", "L3"],
+      "defaultActiveLayer": "L1",
+      "agents": ["designer", "orchestrator", "programmer"],
+      "promptProfile": "full"
+    },
+    "extended-image": {
+      "id": "extended-image-4layer-v1",
+      "version": 1,
+      "layers": ["L0", "L1", "L2", "L3"],
+      "defaultActiveLayer": "L1",
+      "agents": ["designer", "orchestrator", "programmer", "resource-provider"],
+      "promptProfile": "full-image"
+    }
+  }
+}

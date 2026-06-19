@@ -1,0 +1,28 @@
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('electronAPI', {
+  openProjectFolder: (hintPath) => ipcRenderer.invoke('project:openFolder', hintPath),
+  createProject: (payload) => ipcRenderer.invoke('project:create', payload),
+  chooseProjectFolder: () => ipcRenderer.invoke('project:chooseFolder'),
+  saveProject: (payload) => ipcRenderer.invoke('project:save', payload),
+  listFiles: (rootPath) => ipcRenderer.invoke('project:listFiles', rootPath),
+  openFileExternally: (filePath) => ipcRenderer.invoke('project:openFile', filePath),
+  openFolderExternally: (folderPath) => ipcRenderer.invoke('project:openFolderExternally', folderPath),
+  renameProjectPath: (payload) => ipcRenderer.invoke('project:renamePath', payload),
+  deleteProjectPath: (payload) => ipcRenderer.invoke('project:deletePath', payload),
+  saveChatExport: (payload) => ipcRenderer.invoke('project:saveChatExport', payload),
+  toolRead: (payload) => ipcRenderer.invoke('project:toolRead', payload),
+  toolGrep: (payload) => ipcRenderer.invoke('project:toolGrep', payload),
+  toolWrite: (payload) => ipcRenderer.invoke('project:toolWrite', payload),
+  toolWriteBinary: (payload) => ipcRenderer.invoke('project:toolWriteBinary', payload),
+  toolDelete: (payload) => ipcRenderer.invoke('project:toolDelete', payload),
+  readBinaryAsDataUrl: (payload) => ipcRenderer.invoke('project:readBinaryAsDataUrl', payload),
+  toolReadDocx: (payload) => ipcRenderer.invoke('project:toolReadDocx', payload),
+  toolEdit: (payload) => ipcRenderer.invoke('project:toolEdit', payload),
+  runProjectCommand: (payload) => ipcRenderer.invoke('project:runCommand', payload),
+  executeProject: (payload) => ipcRenderer.invoke('project:execute', payload),
+  loadAgentModelSettings: () => ipcRenderer.invoke('settings:loadAgentModel'),
+  saveAgentModelSettings: (payload) => ipcRenderer.invoke('settings:saveAgentModel', payload),
+  openAIOAuthAuthorize: (payload) => ipcRenderer.invoke('settings:openAIOAuthAuthorize', payload),
+  refreshOpenAIOAuthToken: (payload) => ipcRenderer.invoke('settings:refreshOpenAIOAuthToken', payload),
+});

@@ -1,0 +1,11 @@
+{
+    "files":  [
+                  "./default.json",
+                  "./light.json",
+                  "./monochrome.json",
+                  "./rain.json",
+                  "./meadow.json",
+                  "./cyberpunk.json",
+                  "./sunset.json"
+              ]
+}
