@@ -37,7 +37,7 @@ void unregister_instance(ObjectGrandBase* instance) {
     }
 }
 
-void queue_destroy_instance(ObjectGrandBase* instance) {
+void destroy_instance(ObjectGrandBase* instance) {
     if (instance == nullptr) {
         return;
     }
@@ -47,10 +47,6 @@ void queue_destroy_instance(ObjectGrandBase* instance) {
         instance->__Destroy__();
         queue.push_back(instance);
     }
-}
-
-void destroy_instance(ObjectGrandBase* instance) {
-    queue_destroy_instance(instance);
 }
 
 void flush_destroy_queue() {

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, shell, clipboard } = require('electron');
 const fs = require('fs/promises');
 const path = require('path');
 const http = require('http');
@@ -634,6 +634,11 @@ ipcMain.handle('project:openFolderExternally', async (_event, folderPath) => {
   return true;
 });
 
+ipcMain.handle('clipboard:writeText', async (_event, text) => {
+  clipboard.writeText(String(text == null ? '' : text));
+  return true;
+});
+
 ipcMain.handle('project:renamePath', async (_event, payload) => {
   const rootPath = payload?.rootPath;
   const relativePath = payload?.path;
@@ -755,7 +760,7 @@ ipcMain.handle('project:toolRead', async (_event, payload) => {
 });
 
 const GREP_IGNORE_DIRS = new Set([
-  'node_modules', '.git', '.angel', 'dist', 'build', 'out', '.vs', '.idea', '__pycache__', '.cache',
+  'node_modules', '.git', '.angel', 'dist', 'build', 'build-ninja', 'runtime', 'out', '.vs', '.idea', '__pycache__', '.cache',
 ]);
 const GREP_BINARY_EXTS = new Set([
   '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico', '.tif', '.tiff', '.psd',
@@ -764,6 +769,9 @@ const GREP_BINARY_EXTS = new Set([
   '.exe', '.dll', '.so', '.dylib', '.bin', '.pdf', '.docx', '.xlsx', '.pptx', '.class', '.jar', '.wasm',
 ]);
 const GREP_MAX_FILE_BYTES = 2_000_000;
+// "auto" output mode aims to keep the returned payload near this many characters: it shows full
+// matching lines when the complete set fits, otherwise falls back to a budget-trimmed file list.
+const GREP_AUTO_CHAR_BUDGET = 500;
 
 function grepGlobToRegExp(glob) {
   const s = String(glob || '');
@@ -825,14 +833,58 @@ async function grepWalkDir(baseDir, rootResolved, opts, acc) {
       if (!opts.re.test(line)) continue;
       fileCount += 1;
       acc.totalMatches += 1;
-      if (opts.outputMode === 'content' && acc.matches.length < opts.headLimit) {
+      const collectsContent = opts.outputMode === 'content' || opts.outputMode === 'auto';
+      if (collectsContent && acc.matches.length < opts.headLimit) {
         const text = line.length > 300 ? `${line.slice(0, 300)}…` : line;
         acc.matches.push({ path: rel, line: i + 1, text: text.trim() });
       }
-      if (opts.outputMode === 'content' && fileCount >= opts.perFileLimit) break;
+      if (collectsContent && fileCount >= opts.perFileLimit) break;
     }
     if (fileCount > 0) acc.files.set(rel, fileCount);
   }
+}
+
+// Shape an "auto" grep result toward GREP_AUTO_CHAR_BUDGET: prefer the complete set of matching
+// lines when it fits, otherwise return a budget-trimmed file overview. `representation` tells the
+// caller which form it got. Best-effort: a single oversized item is still returned.
+function shapeGrepAuto(pattern, files, acc, headLimit) {
+  const matchesComplete = acc.totalMatches === acc.matches.length;
+  if (matchesComplete && acc.matches.length > 0
+      && JSON.stringify(acc.matches).length <= GREP_AUTO_CHAR_BUDGET) {
+    return {
+      pattern,
+      outputMode: 'auto',
+      representation: 'content',
+      totalMatches: acc.totalMatches,
+      returned: acc.matches.length,
+      truncated: false,
+      matches: acc.matches,
+    };
+  }
+
+  const picked = [];
+  let used = 0;
+  for (const f of files) {
+    if (picked.length >= headLimit) break;
+    const cost = JSON.stringify(f).length + 1;
+    if (picked.length > 0 && used + cost > GREP_AUTO_CHAR_BUDGET) break;
+    picked.push(f);
+    used += cost;
+  }
+  const truncated = files.length > picked.length;
+  return {
+    pattern,
+    outputMode: 'auto',
+    representation: 'files_with_matches',
+    totalFiles: files.length,
+    totalMatches: acc.totalMatches,
+    returned: picked.length,
+    truncated,
+    ...(truncated
+      ? { hint: 'Auto-trimmed to ~500 chars. For more detail re-run with output_mode:"content" (matching lines) or "files_with_matches" (all files), and/or narrow path/glob/pattern.' }
+      : {}),
+    files: picked,
+  };
 }
 
 ipcMain.handle('project:toolGrep', async (_event, payload) => {
@@ -841,9 +893,9 @@ ipcMain.handle('project:toolGrep', async (_event, payload) => {
   const pattern = String(payload?.pattern ?? '');
   if (!pattern) throw new Error('MISSING_PATTERN');
 
-  const outputMode = ['files_with_matches', 'content', 'count'].includes(payload?.outputMode)
+  const outputMode = ['auto', 'files_with_matches', 'content', 'count'].includes(payload?.outputMode)
     ? payload.outputMode
-    : 'files_with_matches';
+    : 'auto';
   const headLimit = Math.max(1, Math.min(500, Number(payload?.headLimit) || 50));
 
   const hasUpper = /[A-Z]/.test(pattern);
@@ -889,6 +941,11 @@ ipcMain.handle('project:toolGrep', async (_event, payload) => {
   const files = [...acc.files.entries()]
     .map(([p, count]) => ({ path: p, count }))
     .sort((a, b) => b.count - a.count || a.path.localeCompare(b.path));
+
+  if (outputMode === 'auto') {
+    return shapeGrepAuto(pattern, files, acc, headLimit);
+  }
+
   const returned = files.slice(0, headLimit);
   const truncated = files.length > returned.length;
   return {
@@ -1190,6 +1247,49 @@ async function findBuiltGameExe(buildDir) {
   return '';
 }
 
+// Prepare <project>/runtime/ as the game's working directory so runtime output
+// (record.txt, DEBUG_LOG.txt, saves) lands under the project root instead of scattering
+// inside build-ninja. Assets are made reachable via a synced `assets.pak`, which the CMake
+// POST_BUILD pack step produces on every build that has src/assets. Returns the runtime dir path.
+async function ensureGameRuntimeDir(rootPath, exePath) {
+  const runtimeDir = path.join(rootPath, 'runtime');
+  const exeDir = path.dirname(exePath);
+  await fs.mkdir(runtimeDir, { recursive: true });
+
+  // Remove any loose assets/ left by an older junction-based prep: the engine resolves
+  // assets through assets.pak now, and a stale junction here would only add confusion.
+  try {
+    await fs.rm(path.join(runtimeDir, 'assets'), { recursive: true, force: true });
+  } catch {
+    // ignore
+  }
+
+  // assets.pak: produced by the CMake POST_BUILD pack step on every (re-linked) build that
+  // has src/assets, so it's normally present next to the exe (not just packaged builds). It is
+  // the engine's sole asset source here — keep it synced, or removed when the current build
+  // produced none (no src/assets, or the pack step was skipped/failed).
+  const pakSrc = path.join(exeDir, 'assets.pak');
+  const pakDst = path.join(runtimeDir, 'assets.pak');
+  if (await pathExists(pakSrc)) {
+    let needCopy = true;
+    try {
+      const [s, d] = await Promise.all([fs.stat(pakSrc), fs.stat(pakDst)]);
+      needCopy = s.mtimeMs > d.mtimeMs || s.size !== d.size;
+    } catch {
+      needCopy = true;
+    }
+    if (needCopy) await fs.copyFile(pakSrc, pakDst);
+  } else {
+    try {
+      await fs.rm(pakDst, { force: true });
+    } catch {
+      // ignore
+    }
+  }
+
+  return runtimeDir;
+}
+
 async function exportProjectRelease(rootPath) {
   const buildDir = await resolveBuildDirectory(rootPath);
   const defaultName = `${path.basename(rootPath) || 'game'}-release.zip`;
@@ -1252,7 +1352,26 @@ ipcMain.handle('project:execute', async (_event, payload) => {
     if (!testName) throw new Error('MISSING_TEST_NAME');
     args = ['--debug', '--test', testName];
   }
-  return runChildProcess(exePath, args, path.dirname(exePath), timeoutMs ? { timeoutMs } : {});
+  // Optional run modifiers (apply to any run* mode):
+  //   --turbo            : synthetic timing for automation (agent-only)
+  //   --record           : capture seed/input transitions to record.txt (user-facing)
+  //   --scenario <path>  : replay a recorded/authored scenario (agent-only)
+  if (payload?.turbo) args.push('--turbo');
+  if (payload?.record) args.push('--record');
+  const scenarioRaw = String(payload?.scenario || '').trim();
+  if (scenarioRaw) {
+    const scenarioPath = path.isAbsolute(scenarioRaw) ? scenarioRaw : path.resolve(rootPath, scenarioRaw);
+    try {
+      await fs.stat(scenarioPath);
+    } catch {
+      throw new Error('SCENARIO_NOT_FOUND');
+    }
+    args.push('--scenario', scenarioPath);
+  }
+  // Run with cwd = <project>/runtime/ (not the exe dir) so the game's cwd-relative output
+  // lands under the project root and build-ninja stays clean. Assets are linked/synced there.
+  const runtimeDir = await ensureGameRuntimeDir(rootPath, exePath);
+  return runChildProcess(exePath, args, runtimeDir, timeoutMs ? { timeoutMs } : {});
 });
 
 app.whenReady().then(() => {

@@ -70,6 +70,7 @@ export function createGraphDomain(deps) {
       item.synopsis = String(item.synopsis || '');
       item.detail = String(item.detail || '');
       item.status = String(item.status || node.status || 'active');
+      if (!Array.isArray(item.resourceBindings)) item.resourceBindings = [];
     }
   }
 
@@ -96,19 +97,41 @@ export function createGraphDomain(deps) {
       ensureNodeLayerFields(n);
       n.synopsis = String(n.synopsis || n.summary || n.layerContent?.[state.activeLayer]?.synopsis || '');
 
-      if (!Array.isArray(n.resourceBindings)) {
-        const legacy = n.blockBinding || {};
-        const legacyPath = typeof legacy.blockId === 'string' ? legacy.blockId.split('#')[0] : '';
-        const legacyBlock = typeof legacy.name === 'string' ? legacy.name : '';
-        n.resourceBindings = legacyPath || legacyBlock
-          ? [{ path: legacyPath, description: legacyBlock }]
-          : [];
+      // Legacy migration: bindings used to live node-global (n.resourceBindings,
+      // or even older n.blockBinding). Bindings are now per-layer, so move any
+      // legacy bindings into the layer the node was created in. Runs once: the
+      // node-global fields are deleted afterwards so re-runs are no-ops.
+      if (Array.isArray(n.resourceBindings) || n.blockBinding) {
+        let legacyBindings = [];
+        if (Array.isArray(n.resourceBindings)) {
+          legacyBindings = n.resourceBindings;
+        } else {
+          const legacy = n.blockBinding || {};
+          const legacyPath = typeof legacy.blockId === 'string' ? legacy.blockId.split('#')[0] : '';
+          const legacyBlock = typeof legacy.name === 'string' ? legacy.name : '';
+          legacyBindings = (legacyPath || legacyBlock) ? [{ path: legacyPath, description: legacyBlock }] : [];
+        }
+        const allLayerIds = getAllLayerIds();
+        const createdLid = allLayerIds[getCreatedLayer(n.createdLayer)] || allLayerIds[0] || state.activeLayer;
+        const target = n.layerContent[createdLid];
+        if (target) {
+          target.resourceBindings = [
+            ...(Array.isArray(target.resourceBindings) ? target.resourceBindings : []),
+            ...legacyBindings,
+          ];
+        }
+        delete n.resourceBindings;
+        delete n.blockBinding;
       }
 
-      n.resourceBindings = n.resourceBindings
-        .filter((entry) => entry && typeof entry.path === 'string')
-        .map((entry) => ({ path: entry.path.trim(), description: typeof entry.description === 'string' ? entry.description.trim() : (typeof entry.block === 'string' ? entry.block.trim() : '') }))
-        .filter((entry) => entry.path.length > 0);
+      // Normalize per-layer bindings.
+      for (const lid of getAllLayerIds()) {
+        const item = n.layerContent[lid];
+        item.resourceBindings = (Array.isArray(item.resourceBindings) ? item.resourceBindings : [])
+          .filter((entry) => entry && typeof entry.path === 'string')
+          .map((entry) => ({ path: entry.path.trim(), description: typeof entry.description === 'string' ? entry.description.trim() : (typeof entry.block === 'string' ? entry.block.trim() : '') }))
+          .filter((entry) => entry.path.length > 0);
+      }
     }
     for (const e of edges) {
       e.createdLayer = getCreatedLayer(e.createdLayer);

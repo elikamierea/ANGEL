@@ -42,9 +42,11 @@ public:
     SurfaceHandle surface_create(int width, int height);
     void surface_set_texture_filter(SurfaceHandle handle, TextureFilter filter);
     void surface_destroy(SurfaceHandle handle);
+    void surface_flush(SurfaceHandle handle, float depth);
     bool surface_set_target(SurfaceHandle handle);
     void surface_reset_target();
     void surface_clear(Color color);
+    void surface_clear(float depth, Color color);
     void surface_draw(SurfaceHandle handle, float x, float y,
                       float depth,
                       float xscale, float yscale,
@@ -108,6 +110,41 @@ private:
         ShaderUniformMap customUniforms;
     };
 
+    enum class RenderNodeType {
+        DrawBatch,
+        Clear,
+        Flush,
+        SurfaceComposite,
+        SurfaceCompositeShader,
+    };
+
+    struct RenderNode {
+        RenderNodeType type{RenderNodeType::DrawBatch};
+        float depth{0.0f};
+        std::uint64_t submissionOrder{0};
+        CommandBuffer batch;
+        Color clearColor{};
+        SurfaceHandle surfaceHandle{kInvalidSurfaceHandle};
+        ShaderHandle shaderHandle{kInvalidShaderHandle};
+        ShaderUniformMap shaderUniforms;
+        float x{0.0f};
+        float y{0.0f};
+        float xscale{1.0f};
+        float yscale{1.0f};
+        float rotationRad{0.0f};
+        Color color{};
+        float alpha{1.0f};
+    };
+
+    struct SurfaceTimeline {
+        SurfaceHandle handle{kInvalidSurfaceHandle};
+        bool isMainSurface{false};
+        bool sorted{true};
+        std::vector<RenderNode> nodes;
+        std::size_t executedCount{0};
+        bool inExecution{false};
+    };
+
     Renderer() = default;
 
     bool load_gl_symbols(platform::Window& window);
@@ -115,7 +152,7 @@ private:
     bool create_effect_shader_program(const std::string& fragmentSource, ShaderResource& outResource);
     GLuint compile_shader(GLenum type, const char* source);
     void destroy_shader_program();
-    void upload_batches();
+    void upload_batches(CommandBuffer& buffer);
     void update_view_projection();
     void bind_view_projection(GLint location) const;
     Color sanitize_color(Color color) const;
@@ -123,11 +160,19 @@ private:
     std::string build_effect_fragment_source(const std::string& fragmentSource) const;
     void apply_shader_uniforms(ShaderResource& shader, const SurfaceResource& surface, Color color);
     void ensure_custom_uniform_location(ShaderResource& shader, const std::string& name);
+    SurfaceTimeline& active_timeline();
+    SurfaceTimeline& timeline_for(SurfaceHandle handle);
+    void reset_frame_timelines();
+    RenderNode& emplace_node(SurfaceTimeline& timeline, RenderNodeType type, float depth);
+    void sort_timeline_if_needed(SurfaceTimeline& timeline);
+    void execute_timeline_until(SurfaceTimeline& timeline, float depth, std::uint64_t submissionOrder, bool inclusive);
+    void execute_node(const RenderNode& node, SurfaceTimeline& timeline);
+    void bind_surface_target(SurfaceHandle handle);
+    void execute_surface_composite_node(const RenderNode& node, bool useShader);
 
 private:
     bool m_initialized{false};
     platform::Window* m_window{nullptr};
-    CommandBuffer m_commandBuffer;
     TextureGroupManager m_textureManager;
     GPUDevice m_device;
 
@@ -141,10 +186,15 @@ private:
 
     std::unordered_map<SurfaceHandle, SurfaceResource> m_surfaces;
     std::unordered_map<ShaderHandle, ShaderResource> m_shaders;
+    std::unordered_map<SurfaceHandle, SurfaceTimeline> m_timelines;
+    std::vector<SurfaceHandle> m_pendingDestroySurfaces;
+    std::vector<ShaderHandle> m_pendingDestroyShaders;
     SurfaceHandle m_nextSurfaceHandle{1};
     ShaderHandle m_nextShaderHandle{1};
     SurfaceHandle m_activeSurface{kInvalidSurfaceHandle};
+    SurfaceHandle m_submissionTarget{kInvalidSurfaceHandle};
     float m_elapsedTime{0.0f};
+    std::uint64_t m_nextSubmissionOrder{1};
 };
 
 } // namespace engine::draw

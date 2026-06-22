@@ -89,6 +89,18 @@ struct DrawRange {
     std::size_t indexOffset{0};
 };
 
+bool node_key_precedes(float lhsDepth, std::uint64_t lhsOrder,
+                       float rhsDepth, std::uint64_t rhsOrder,
+                       bool inclusive) {
+    if (lhsDepth < rhsDepth) {
+        return true;
+    }
+    if (lhsDepth > rhsDepth) {
+        return false;
+    }
+    return inclusive ? (lhsOrder <= rhsOrder) : (lhsOrder < rhsOrder);
+}
+
 } // namespace
 
 Renderer& Renderer::instance() {
@@ -149,6 +161,9 @@ void Renderer::shutdown() {
         }
     }
     m_surfaces.clear();
+    m_timelines.clear();
+    m_pendingDestroySurfaces.clear();
+    m_pendingDestroyShaders.clear();
     for (auto& [_, shader] : m_shaders) {
         if (shader.program != 0) {
             glDeleteProgram(shader.program);
@@ -156,6 +171,7 @@ void Renderer::shutdown() {
     }
     m_shaders.clear();
     m_activeSurface = kInvalidSurfaceHandle;
+    m_submissionTarget = kInvalidSurfaceHandle;
 
     m_textureManager.shutdown();
     m_device.shutdown();
@@ -186,12 +202,13 @@ void Renderer::begin_frame() {
     }
 
     m_activeSurface = kInvalidSurfaceHandle;
+    m_submissionTarget = kInvalidSurfaceHandle;
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     m_window->framebuffer_size(m_viewWidth, m_viewHeight);
     glViewport(0, 0, m_viewWidth, m_viewHeight);
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
-    m_commandBuffer.clear();
+    reset_frame_timelines();
     m_elapsedTime += 1.0f / 60.0f;
     glUseProgram(m_shaderProgram);
     update_view_projection();
@@ -201,7 +218,40 @@ void Renderer::end_frame() {
     if (!m_initialized) {
         return;
     }
-    upload_batches();
+
+    auto mainIt = m_timelines.find(kInvalidSurfaceHandle);
+    if (mainIt != m_timelines.end()) {
+        execute_timeline_until(mainIt->second,
+                               std::numeric_limits<float>::infinity(),
+                               std::numeric_limits<std::uint64_t>::max(),
+                               true);
+    }
+
+    for (SurfaceHandle handle : m_pendingDestroySurfaces) {
+        auto it = m_surfaces.find(handle);
+        if (it == m_surfaces.end()) {
+            continue;
+        }
+        if (it->second.framebuffer != 0) glDeleteFramebuffers(1, &it->second.framebuffer);
+        if (it->second.texture != 0) glDeleteTextures(1, &it->second.texture);
+        m_surfaces.erase(it);
+        m_timelines.erase(handle);
+    }
+    m_pendingDestroySurfaces.clear();
+
+    for (ShaderHandle handle : m_pendingDestroyShaders) {
+        auto it = m_shaders.find(handle);
+        if (it == m_shaders.end()) {
+            continue;
+        }
+        if (it->second.program != 0) {
+            glDeleteProgram(it->second.program);
+        }
+        m_shaders.erase(it);
+    }
+    m_pendingDestroyShaders.clear();
+
+    bind_surface_target(kInvalidSurfaceHandle);
 }
 
 void Renderer::present() {
@@ -261,10 +311,9 @@ void Renderer::shader_destroy(ShaderHandle handle) {
         return;
     }
 
-    if (it->second.program != 0) {
-        glDeleteProgram(it->second.program);
+    if (std::find(m_pendingDestroyShaders.begin(), m_pendingDestroyShaders.end(), handle) == m_pendingDestroyShaders.end()) {
+        m_pendingDestroyShaders.push_back(handle);
     }
-    m_shaders.erase(it);
 }
 
 void Renderer::shader_set_uniform_float(ShaderHandle handle, const std::string& name, float value) {
@@ -329,6 +378,10 @@ SurfaceHandle Renderer::surface_create(int width, int height) {
 
     const SurfaceHandle handle = m_nextSurfaceHandle++;
     m_surfaces.emplace(handle, resource);
+    auto& timeline = m_timelines[handle];
+    timeline.handle = handle;
+    timeline.isMainSurface = false;
+    timeline.sorted = true;
     return handle;
 }
 
@@ -344,39 +397,40 @@ void Renderer::surface_destroy(SurfaceHandle handle) {
     if (handle == kInvalidSurfaceHandle) return;
     auto it = m_surfaces.find(handle);
     if (it == m_surfaces.end()) return;
-    if (m_activeSurface == handle) {
-        surface_reset_target();
+    if (std::find(m_pendingDestroySurfaces.begin(), m_pendingDestroySurfaces.end(), handle) == m_pendingDestroySurfaces.end()) {
+        m_pendingDestroySurfaces.push_back(handle);
     }
-    if (it->second.framebuffer != 0) glDeleteFramebuffers(1, &it->second.framebuffer);
-    if (it->second.texture != 0) glDeleteTextures(1, &it->second.texture);
-    m_surfaces.erase(it);
+    if (m_submissionTarget == handle) {
+        m_submissionTarget = kInvalidSurfaceHandle;
+    }
+}
+
+void Renderer::surface_flush(SurfaceHandle handle, float depth) {
+    SurfaceTimeline& timeline = active_timeline();
+    RenderNode& node = emplace_node(timeline, RenderNodeType::Flush, depth);
+    node.surfaceHandle = handle;
 }
 
 bool Renderer::surface_set_target(SurfaceHandle handle) {
-    auto it = m_surfaces.find(handle);
-    if (it == m_surfaces.end()) return false;
-    upload_batches();
-    m_commandBuffer.clear();
-    m_activeSurface = handle;
-    glBindFramebuffer(GL_FRAMEBUFFER, it->second.framebuffer);
-    glViewport(0, 0, it->second.width, it->second.height);
-    update_view_projection();
+    if (handle != kInvalidSurfaceHandle && m_surfaces.find(handle) == m_surfaces.end()) {
+        return false;
+    }
+    m_submissionTarget = handle;
     return true;
 }
 
 void Renderer::surface_reset_target() {
-    upload_batches();
-    m_commandBuffer.clear();
-    m_activeSurface = kInvalidSurfaceHandle;
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    glViewport(0, 0, m_viewWidth, m_viewHeight);
-    update_view_projection();
+    m_submissionTarget = kInvalidSurfaceHandle;
 }
 
 void Renderer::surface_clear(Color color) {
-    color = sanitize_color(color);
-    glClearColor(color.r, color.g, color.b, color.a);
-    glClear(GL_COLOR_BUFFER_BIT);
+    surface_clear(std::numeric_limits<float>::lowest(), color);
+}
+
+void Renderer::surface_clear(float depth, Color color) {
+    SurfaceTimeline& timeline = active_timeline();
+    RenderNode& node = emplace_node(timeline, RenderNodeType::Clear, depth);
+    node.clearColor = sanitize_color(color);
 }
 
 void Renderer::surface_draw(SurfaceHandle handle, float x, float y,
@@ -384,13 +438,18 @@ void Renderer::surface_draw(SurfaceHandle handle, float x, float y,
                             float xscale, float yscale,
                             float rotationRad, Color color, float alpha) {
     auto it = m_surfaces.find(handle);
-    if (it == m_surfaces.end() || handle == m_activeSurface) return;
+    if (it == m_surfaces.end() || handle == m_submissionTarget) return;
 
-    Sprite sprite{};
-    sprite.textureHandle = it->second.texture;
-    sprite.frameCount = 1;
-    sprite.frames.push_back(Frame{0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, it->second.width, it->second.height});
-    submit_sprite(x, y, sprite, 0, depth, xscale, yscale, rotationRad, color, alpha);
+    SurfaceTimeline& timeline = active_timeline();
+    RenderNode& node = emplace_node(timeline, RenderNodeType::SurfaceComposite, depth);
+    node.surfaceHandle = handle;
+    node.x = x;
+    node.y = y;
+    node.xscale = xscale;
+    node.yscale = yscale;
+    node.rotationRad = rotationRad;
+    node.color = sanitize_color(color);
+    node.alpha = alpha;
 }
 
 void Renderer::surface_draw_with_shader(SurfaceHandle handle, ShaderHandle shaderHandle, float x, float y,
@@ -399,49 +458,22 @@ void Renderer::surface_draw_with_shader(SurfaceHandle handle, ShaderHandle shade
                                         float rotationRad, Color color, float alpha) {
     auto surfaceIt = m_surfaces.find(handle);
     auto shaderIt = m_shaders.find(shaderHandle);
-    if (surfaceIt == m_surfaces.end() || shaderIt == m_shaders.end() || handle == m_activeSurface) {
+    if (surfaceIt == m_surfaces.end() || shaderIt == m_shaders.end() || handle == m_submissionTarget) {
         return;
     }
 
-    upload_batches();
-    m_commandBuffer.clear();
-
-    const float w = static_cast<float>(surfaceIt->second.width);
-    const float h = static_cast<float>(surfaceIt->second.height);
-    float lx[4] = {0.0f, w, w, 0.0f};
-    float ly[4] = {0.0f, 0.0f, h, h};
-    const float c = std::cos(rotationRad);
-    const float s = std::sin(rotationRad);
-    color = sanitize_color(color);
-    color.a = std::clamp(color.a * alpha, 0.0f, 1.0f);
-
-    for (int i = 0; i < 4; ++i) {
-        float sx = lx[i] * xscale;
-        float sy = ly[i] * yscale;
-        float rx = sx * c - sy * s;
-        float ry = sx * s + sy * c;
-        lx[i] = x + rx;
-        ly[i] = y + ry;
-    }
-
-    std::vector<Vertex> vertices;
-    vertices.reserve(4);
-    vertices.push_back({lx[0], ly[0], 0.0f, 0.0f, color.r, color.g, color.b, color.a});
-    vertices.push_back({lx[1], ly[1], 1.0f, 0.0f, color.r, color.g, color.b, color.a});
-    vertices.push_back({lx[2], ly[2], 1.0f, 1.0f, color.r, color.g, color.b, color.a});
-    vertices.push_back({lx[3], ly[3], 0.0f, 1.0f, color.r, color.g, color.b, color.a});
-    const std::vector<std::uint32_t> indices = {0, 1, 2, 0, 2, 3};
-
-    glUseProgram(shaderIt->second.program);
-    bind_view_projection(shaderIt->second.viewProjLocation);
-    apply_shader_uniforms(shaderIt->second, surfaceIt->second, color);
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, surfaceIt->second.texture);
-    m_device.upload(vertices, indices);
-    m_device.draw_indexed(static_cast<GLsizei>(indices.size()), 0);
-    glBindTexture(GL_TEXTURE_2D, 0);
-    glUseProgram(m_shaderProgram);
-    update_view_projection();
+    SurfaceTimeline& timeline = active_timeline();
+    RenderNode& node = emplace_node(timeline, RenderNodeType::SurfaceCompositeShader, depth);
+    node.surfaceHandle = handle;
+    node.shaderHandle = shaderHandle;
+    node.x = x;
+    node.y = y;
+    node.xscale = xscale;
+    node.yscale = yscale;
+    node.rotationRad = rotationRad;
+    node.color = sanitize_color(color);
+    node.alpha = alpha;
+    node.shaderUniforms = shaderIt->second.customUniforms;
 }
 
 Sprite Renderer::load_sprite(const std::string& file_location, int texture_group_id) {
@@ -541,7 +573,9 @@ void Renderer::submit_sprite(float x, float y, const Sprite& sprite, int frame,
     command.vertices.push_back({lx[2], ly[2], frameData.u1, frameData.v1, color.r, color.g, color.b, color.a});
     command.vertices.push_back({lx[3], ly[3], frameData.u0, frameData.v1, color.r, color.g, color.b, color.a});
 
-    m_commandBuffer.push(command);
+    SurfaceTimeline& timeline = active_timeline();
+    RenderNode& node = emplace_node(timeline, RenderNodeType::DrawBatch, depth);
+    node.batch.push(command);
 }
 
 void Renderer::submit_line(float x1, float y1,
@@ -576,7 +610,9 @@ void Renderer::submit_line(float x1, float y1,
     };
     command.indices = {0, 1, 2, 0, 2, 3};
 
-    m_commandBuffer.push(command);
+    SurfaceTimeline& timeline = active_timeline();
+    RenderNode& node = emplace_node(timeline, RenderNodeType::DrawBatch, depth);
+    node.batch.push(command);
 }
 
 void Renderer::submit_triangle(Vec2 p0, Vec2 p1, Vec2 p2,
@@ -598,7 +634,9 @@ void Renderer::submit_triangle(Vec2 p0, Vec2 p1, Vec2 p2,
     };
     command.indices = {0, 1, 2};
 
-    m_commandBuffer.push(command);
+    SurfaceTimeline& timeline = active_timeline();
+    RenderNode& node = emplace_node(timeline, RenderNodeType::DrawBatch, depth);
+    node.batch.push(command);
 }
 
 void Renderer::submit_rectangle(float x, float y,
@@ -622,7 +660,9 @@ void Renderer::submit_rectangle(float x, float y,
     };
     command.indices = {0, 1, 2, 0, 2, 3};
 
-    m_commandBuffer.push(command);
+    SurfaceTimeline& timeline = active_timeline();
+    RenderNode& node = emplace_node(timeline, RenderNodeType::DrawBatch, depth);
+    node.batch.push(command);
 }
 
 void Renderer::submit_convex_polygon(const std::vector<Vec2>& points,
@@ -650,7 +690,9 @@ void Renderer::submit_convex_polygon(const std::vector<Vec2>& points,
         command.indices.push_back(i + 1);
     }
 
-    m_commandBuffer.push(command);
+    SurfaceTimeline& timeline = active_timeline();
+    RenderNode& node = emplace_node(timeline, RenderNodeType::DrawBatch, depth);
+    node.batch.push(command);
 }
 
 void Renderer::submit_regular_polygon(float centerX, float centerY,
@@ -909,8 +951,239 @@ void Renderer::apply_shader_uniforms(ShaderResource& shader, const SurfaceResour
     }
 }
 
-void Renderer::upload_batches() {
-    auto& commands = m_commandBuffer.commands();
+Renderer::SurfaceTimeline& Renderer::active_timeline() {
+    return timeline_for(m_submissionTarget);
+}
+
+Renderer::SurfaceTimeline& Renderer::timeline_for(SurfaceHandle handle) {
+    auto& timeline = m_timelines[handle];
+    timeline.handle = handle;
+    timeline.isMainSurface = (handle == kInvalidSurfaceHandle);
+    return timeline;
+}
+
+void Renderer::reset_frame_timelines() {
+    for (auto& [_, timeline] : m_timelines) {
+        timeline.nodes.clear();
+        timeline.executedCount = 0;
+        timeline.sorted = true;
+        timeline.inExecution = false;
+    }
+    timeline_for(kInvalidSurfaceHandle);
+    m_nextSubmissionOrder = 1;
+}
+
+Renderer::RenderNode& Renderer::emplace_node(Renderer::SurfaceTimeline& timeline, Renderer::RenderNodeType type, float depth) {
+    timeline.sorted = false;
+    timeline.nodes.push_back(RenderNode{});
+    RenderNode& node = timeline.nodes.back();
+    node.type = type;
+    node.depth = depth;
+    node.submissionOrder = m_nextSubmissionOrder++;
+    return node;
+}
+
+void Renderer::sort_timeline_if_needed(Renderer::SurfaceTimeline& timeline) {
+    if (timeline.sorted) {
+        return;
+    }
+
+    std::stable_sort(timeline.nodes.begin(), timeline.nodes.end(), [](const RenderNode& a, const RenderNode& b) {
+        if (a.depth != b.depth) {
+            return a.depth < b.depth;
+        }
+        return a.submissionOrder < b.submissionOrder;
+    });
+    timeline.sorted = true;
+}
+
+void Renderer::execute_timeline_until(Renderer::SurfaceTimeline& timeline, float depth, std::uint64_t submissionOrder, bool inclusive) {
+    sort_timeline_if_needed(timeline);
+
+    const bool wasInExecution = timeline.inExecution;
+    if (!wasInExecution) {
+        timeline.inExecution = true;
+    }
+
+    while (timeline.executedCount < timeline.nodes.size()) {
+        const RenderNode& node = timeline.nodes[timeline.executedCount];
+        if (!node_key_precedes(node.depth, node.submissionOrder, depth, submissionOrder, inclusive)) {
+            break;
+        }
+
+        execute_node(node, timeline);
+        ++timeline.executedCount;
+    }
+
+    if (!wasInExecution) {
+        timeline.inExecution = false;
+    }
+}
+
+void Renderer::execute_node(const Renderer::RenderNode& node, Renderer::SurfaceTimeline& timeline) {
+    switch (node.type) {
+        case RenderNodeType::DrawBatch:
+            bind_surface_target(timeline.handle);
+            upload_batches(const_cast<CommandBuffer&>(node.batch));
+            break;
+        case RenderNodeType::Clear:
+            bind_surface_target(timeline.handle);
+            glClearColor(node.clearColor.r, node.clearColor.g, node.clearColor.b, node.clearColor.a);
+            glClear(GL_COLOR_BUFFER_BIT);
+            break;
+        case RenderNodeType::Flush:
+            if (node.surfaceHandle == timeline.handle) {
+                return;
+            }
+
+            if (node.surfaceHandle != kInvalidSurfaceHandle) {
+                auto surfaceIt = m_surfaces.find(node.surfaceHandle);
+                if (surfaceIt == m_surfaces.end()) {
+                    return;
+                }
+            }
+
+            {
+                SurfaceTimeline& targetTimeline = timeline_for(node.surfaceHandle);
+                if (targetTimeline.inExecution) {
+                    engine::debug::log_error("Render surface flush cycle detected");
+                    return;
+                }
+                execute_timeline_until(targetTimeline, node.depth, node.submissionOrder, false);
+            }
+            break;
+        case RenderNodeType::SurfaceComposite:
+            bind_surface_target(timeline.handle);
+            execute_surface_composite_node(node, false);
+            break;
+        case RenderNodeType::SurfaceCompositeShader:
+            bind_surface_target(timeline.handle);
+            execute_surface_composite_node(node, true);
+            break;
+    }
+}
+
+void Renderer::bind_surface_target(SurfaceHandle handle) {
+    m_activeSurface = handle;
+    if (handle == kInvalidSurfaceHandle) {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(0, 0, m_viewWidth, m_viewHeight);
+    } else {
+        auto it = m_surfaces.find(handle);
+        if (it == m_surfaces.end()) {
+            return;
+        }
+        glBindFramebuffer(GL_FRAMEBUFFER, it->second.framebuffer);
+        glViewport(0, 0, it->second.width, it->second.height);
+    }
+    glUseProgram(m_shaderProgram);
+    update_view_projection();
+}
+
+void Renderer::execute_surface_composite_node(const Renderer::RenderNode& node, bool useShader) {
+    auto surfaceIt = m_surfaces.find(node.surfaceHandle);
+    if (surfaceIt == m_surfaces.end() || node.surfaceHandle == m_activeSurface) {
+        return;
+    }
+
+    const SurfaceResource& surface = surfaceIt->second;
+    if (surface.texture == 0 || surface.width <= 0 || surface.height <= 0) {
+        return;
+    }
+
+    Color drawColor = sanitize_color(node.color);
+    drawColor.a = std::clamp(drawColor.a * node.alpha, 0.0f, 1.0f);
+
+    const float width = static_cast<float>(surface.width);
+    const float height = static_cast<float>(surface.height);
+    float lx[4] = {0.0f, width, width, 0.0f};
+    float ly[4] = {0.0f, 0.0f, height, height};
+
+    const float c = std::cos(node.rotationRad);
+    const float s = std::sin(node.rotationRad);
+    for (int i = 0; i < 4; ++i) {
+        const float sx = lx[i] * node.xscale;
+        const float sy = ly[i] * node.yscale;
+        const float rx = sx * c - sy * s;
+        const float ry = sx * s + sy * c;
+        lx[i] = node.x + rx;
+        ly[i] = node.y + ry;
+    }
+
+    DrawCommand command{};
+    command.glTextureID = surface.texture;
+    command.depth = node.depth;
+    command.vertices = {
+        {lx[0], ly[0], 0.0f, 1.0f, drawColor.r, drawColor.g, drawColor.b, drawColor.a},
+        {lx[1], ly[1], 1.0f, 1.0f, drawColor.r, drawColor.g, drawColor.b, drawColor.a},
+        {lx[2], ly[2], 1.0f, 0.0f, drawColor.r, drawColor.g, drawColor.b, drawColor.a},
+        {lx[3], ly[3], 0.0f, 0.0f, drawColor.r, drawColor.g, drawColor.b, drawColor.a},
+    };
+    command.indices = {0, 1, 2, 0, 2, 3};
+
+    CommandBuffer buffer;
+    buffer.push(command);
+
+    if (!useShader) {
+        glUseProgram(m_shaderProgram);
+        update_view_projection();
+        upload_batches(buffer);
+        return;
+    }
+
+    auto shaderIt = m_shaders.find(node.shaderHandle);
+    if (shaderIt == m_shaders.end() || shaderIt->second.program == 0) {
+        return;
+    }
+
+    ShaderResource& shader = shaderIt->second;
+    glUseProgram(shader.program);
+    bind_view_projection(shader.viewProjLocation);
+    if (shader.textureLocation >= 0) {
+        glUniform1i(shader.textureLocation, 0);
+    }
+    if (shader.timeLocation >= 0) {
+        glUniform1f(shader.timeLocation, m_elapsedTime);
+    }
+    if (shader.inputSizeLocation >= 0) {
+        glUniform2f(shader.inputSizeLocation, static_cast<float>(surface.width), static_cast<float>(surface.height));
+    }
+    if (shader.inputTexelSizeLocation >= 0) {
+        glUniform2f(shader.inputTexelSizeLocation,
+                    1.0f / static_cast<float>(std::max(1, surface.width)),
+                    1.0f / static_cast<float>(std::max(1, surface.height)));
+    }
+    if (shader.colorLocation >= 0) {
+        glUniform4f(shader.colorLocation, drawColor.r, drawColor.g, drawColor.b, drawColor.a);
+    }
+
+    for (const auto& [name, value] : node.shaderUniforms) {
+        ensure_custom_uniform_location(shader, name);
+        const auto locationIt = shader.customLocations.find(name);
+        if (locationIt == shader.customLocations.end() || locationIt->second < 0) {
+            continue;
+        }
+
+        switch (value.type) {
+            case ShaderUniformValue::Type::Float:
+                glUniform1f(locationIt->second, value.x);
+                break;
+            case ShaderUniformValue::Type::Vec2:
+                glUniform2f(locationIt->second, value.x, value.y);
+                break;
+            case ShaderUniformValue::Type::Vec4:
+                glUniform4f(locationIt->second, value.x, value.y, value.z, value.w);
+                break;
+        }
+    }
+
+    upload_batches(buffer);
+    glUseProgram(m_shaderProgram);
+    update_view_projection();
+}
+
+void Renderer::upload_batches(CommandBuffer& buffer) {
+    auto& commands = buffer.commands();
     if (commands.empty()) {
         return;
     }

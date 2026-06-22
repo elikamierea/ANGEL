@@ -79,18 +79,35 @@ export function createAssetGeneration(deps) {
       throw new Error('Pivot must be finite numbers.');
     }
 
-    const atlasWidth = frames.reduce((m, f) => Math.max(m, f.width), 1);
-    const atlasHeight = frames.reduce((sum, f) => sum + f.height, 0);
+    // The engine slices the atlas as a single horizontal row with a uniform frame size
+    // (texture_group.cpp upload_sprite: frameOffsetX = frameIndex * frameWidth, frameOffsetY
+    // is constant). So every frame must share the same dimensions, and frames are laid out
+    // left-to-right — NOT stacked vertically.
+    const frameWidth = Math.max(1, Math.trunc(Number(frames[0]?.width || 1)));
+    const frameHeight = Math.max(1, Math.trunc(Number(frames[0]?.height || 1)));
+    for (let i = 0; i < frames.length; i += 1) {
+      const fw = Math.trunc(Number(frames[i]?.width || 0));
+      const fh = Math.trunc(Number(frames[i]?.height || 0));
+      if (fw !== frameWidth || fh !== frameHeight) {
+        throw new Error(
+          `All sprite frames must share the same size. Frame ${i + 1} is ${fw}×${fh}, ` +
+          `but the first frame is ${frameWidth}×${frameHeight}. Resize the frames to match.`,
+        );
+      }
+    }
+
+    const atlasWidth = frameWidth * frames.length;
+    const atlasHeight = frameHeight;
     const atlasCanvas = document.createElement('canvas');
     atlasCanvas.width = atlasWidth;
     atlasCanvas.height = atlasHeight;
     const atlasCtx = atlasCanvas.getContext('2d');
     atlasCtx.clearRect(0, 0, atlasWidth, atlasHeight);
 
-    let y = 0;
+    let x = 0;
     for (const frame of frames) {
-      atlasCtx.drawImage(frame.image, 0, y, frame.width, frame.height);
-      y += frame.height;
+      atlasCtx.drawImage(frame.image, x, 0, frameWidth, frameHeight);
+      x += frameWidth;
     }
 
     const pngBlob = await new Promise((resolve) => atlasCanvas.toBlob(resolve, 'image/png'));
@@ -99,8 +116,6 @@ export function createAssetGeneration(deps) {
     const normalizedPath = normalizeToolRelativePath(srcPath);
     const pngRelPath = `${normalizedPath}/${name}.png`;
     const txtRelPath = `${normalizedPath}/${name}.txt`;
-    const frameWidth = Math.max(1, Math.trunc(Number(frames[0]?.width || 1)));
-    const frameHeight = Math.max(1, Math.trunc(Number(frames[0]?.height || 1)));
     const metadataText = `${pivotX} ${pivotY} ${frames.length} ${frameWidth} ${frameHeight}`;
 
     await writeBinaryFileByRelativePath(pngRelPath, pngBlob);

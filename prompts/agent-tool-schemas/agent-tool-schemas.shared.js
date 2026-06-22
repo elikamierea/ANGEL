@@ -2,7 +2,7 @@ export const SHARED_AGENT_TOOL_SCHEMAS = [
   {
     type: 'function',
     name: 'list_node',
-    description: 'Return visible nodes in DFS order for the requested layer. layer is required. Optionally provide root to list only that visible node and its descendants as a subtree. Each returned item includes name, depth, and synopsis when non-empty.',
+    description: 'Return visible nodes in DFS order for the requested layer. layer is required. Optionally provide root to list only that visible node and its descendants as a subtree. Each returned item includes name, depth, fa (the parent node name; omitted for top-level roots at depth 0), and synopsis when non-empty.',
     parameters: {
       type: 'object',
       properties: {
@@ -16,7 +16,7 @@ export const SHARED_AGENT_TOOL_SCHEMAS = [
   {
     type: 'function',
     name: 'list_empty_node',
-    description: 'Return visible nodes in DFS order for the requested layer, but only include nodes whose detail is empty. layer is required. Optionally provide root to limit the search to that visible node and its descendants as a subtree. Each returned item includes name, depth, and synopsis when non-empty.',
+    description: 'Return visible nodes in DFS order for the requested layer, but only include nodes whose detail is empty. layer is required. Optionally provide root to limit the search to that visible node and its descendants as a subtree. Each returned item includes name, depth, fa (the parent node name; omitted for top-level roots at depth 0), and synopsis when non-empty.',
     parameters: {
       type: 'object',
       properties: {
@@ -30,7 +30,7 @@ export const SHARED_AGENT_TOOL_SCHEMAS = [
   {
     type: 'function',
     name: 'get_node_detail',
-    description: 'Given node name (and optional layer), return node detail and connected edges. Each edge includes its id for precise follow-up update/delete calls, and uses fromNode/toNode to indicate the other endpoint direction relative to the queried node, plus node synopsis + lrtb (left/right/top/bottom). If layer is omitted, search all layers (L0-L3).',
+    description: 'Given node name (and optional layer), return node detail and connected edges. Each edge includes its id for precise follow-up update/delete calls, and uses fromNode/toNode to indicate the other endpoint direction relative to the queried node, plus node synopsis + lrtb (left/right/top/bottom). resourceBindings reflect the queried layer only (bindings are per-layer). If layer is omitted, search all layers (L0-L3).',
     parameters: {
       type: 'object',
       properties: {
@@ -52,7 +52,7 @@ export const SHARED_AGENT_TOOL_SCHEMAS = [
         layer: { type: 'string' },
         root: { type: 'string' },
         '-i': { type: 'boolean' },
-        headLimit: { type: 'number' },
+        head_limit: { type: 'number', description: 'Max matches to return (default 50, capped at 500). Same name as grep_file.' },
       },
       required: ['pattern', 'layer'],
       additionalProperties: false,
@@ -84,6 +84,7 @@ export const SHARED_AGENT_TOOL_SCHEMAS = [
         },
         resourceBindings: {
           type: 'array',
+          description: 'Resource bindings for this node, scoped to the given layer. Each layer keeps its own independent bindings (e.g. design-layer images/sprites vs code-layer source files); bindings added on one layer are not visible on others.',
           items: {
             type: 'object',
             properties: {
@@ -164,6 +165,7 @@ export const SHARED_AGENT_TOOL_SCHEMAS = [
         color: { type: 'number' },
         resourceBindings: {
           type: 'array',
+          description: 'Resource bindings for this node, scoped to the given layer. Each layer keeps its own independent bindings (e.g. design-layer images/sprites vs code-layer source files); bindings added on one layer are not visible on others.',
           items: {
             type: 'object',
             properties: {
@@ -313,11 +315,12 @@ export const SHARED_AGENT_TOOL_SCHEMAS = [
   {
     type: 'function',
     name: 'read_image',
-    description: 'Attach an image from project path into model context (vision input) without extra interpretation.',
+    description: 'Attach an image from project path into model context (vision input) without extra interpretation. By default the image is downscaled to 1/3 on each axis (~1/9 the pixels) to keep vision-token cost low; set scale to adjust (e.g. scale=1 for full resolution when you need fine detail).',
     parameters: {
       type: 'object',
       properties: {
         path: { type: 'string' },
+        scale: { type: 'number', description: 'Downscale factor on each axis, in (0, 1]. Defaults to 0.333 (1/3 width and height). Use a larger value (up to 1 = full resolution) when you need finer detail; values are clamped to this range. Never upscales.' },
       },
       required: ['path'],
       additionalProperties: false,
@@ -369,14 +372,14 @@ export const SHARED_AGENT_TOOL_SCHEMAS = [
   {
     type: 'function',
     name: 'grep_file',
-    description: 'Regex content search over project files, relative to the project root. pattern is required (smart-case: case-insensitive unless it has an uppercase letter; -i overrides). Optionally scope with path (a subdirectory) and/or glob (e.g. "**/*.js"). output_mode: "files_with_matches" (default) returns matching file paths with per-file counts; "content" returns matching lines with line numbers; "count" returns per-file counts. Skips node_modules/.git/build dirs, binary files, and files over 2MB. Results are capped (head_limit, default 50) with a truncated flag; narrow path/glob/pattern when truncated.',
+    description: 'Regex content search over project files, relative to the project root. pattern is required (smart-case: case-insensitive unless it has an uppercase letter; -i overrides). Optionally scope with path (a subdirectory) and/or glob (e.g. "**/*.js"). output_mode: "auto" (DEFAULT) aims to keep the reply near 500 characters — it returns the matching lines when the complete set fits that budget, otherwise a budget-trimmed list of matching files (the result carries a "representation" field saying which you got); "files_with_matches" returns matching file paths with per-file counts; "content" returns matching lines with line numbers; "count" returns per-file counts. Prefer the default auto for a first look, then re-run with content/files_with_matches when you need the full results. Skips node_modules/.git/build dirs, binary files, and files over 2MB. Results are capped (head_limit, default 50) with a truncated flag; narrow path/glob/pattern when truncated.',
     parameters: {
       type: 'object',
       properties: {
         pattern: { type: 'string' },
         path: { type: 'string' },
         glob: { type: 'string' },
-        output_mode: { type: 'string', enum: ['files_with_matches', 'content', 'count'] },
+        output_mode: { type: 'string', enum: ['auto', 'files_with_matches', 'content', 'count'], description: 'Defaults to "auto" (best-effort ≤500-char reply: matching lines if they fit, else a trimmed file overview). Use "content"/"files_with_matches"/"count" to force a specific form.' },
         '-i': { type: 'boolean' },
         head_limit: { type: 'number' },
       },
@@ -415,10 +418,12 @@ export const SHARED_AGENT_TOOL_SCHEMAS = [
   {
     type: 'function',
     name: 'compile_project',
-    description: 'Compile the currently opened project using the same desktop Execute chain as the topbar Compile action. Desktop (Electron) mode only.',
+    description: 'Compile the currently opened project using the same desktop Execute chain as the topbar Compile action. Desktop (Electron) mode only. By default returns a compact result: on success just {ok:true}, on failure only the error lines (not the full multi-KB build log). Set fullOutput=true to get the complete compiler stdout/stderr.',
     parameters: {
       type: 'object',
-      properties: {},
+      properties: {
+        fullOutput: { type: 'boolean', description: 'When true, return the complete compiler output (stdout+stderr). Default false: return only pass/fail and, on failure, the error lines.' },
+      },
       required: [],
       additionalProperties: false,
     },
@@ -426,11 +431,13 @@ export const SHARED_AGENT_TOOL_SCHEMAS = [
   {
     type: 'function',
     name: 'run_project',
-    description: 'Run the currently opened project using the same desktop Execute chain as the topbar Run actions. Set debug=true to run with --debug. Set testName to run a named test. If timeoutMs is omitted, agent-triggered runs default to 30000ms so the tool can return accumulated output without waiting forever. Desktop (Electron) mode only.',
+    description: 'Run the currently opened project using the same desktop Execute chain as the topbar Run actions. Set debug=true to run with --debug. Set testName to run a named test. Set turbo=true to run with --turbo (synthetic timing for automation — strongly recommended for agent-driven runs so they do not block on real-time gameplay). Set scenario to a path to replay a recorded/authored scenario file via --scenario (the path may be project-root-relative or absolute; it can be a user-recorded record.txt or a scenario you wrote yourself). If timeoutMs is omitted, agent-triggered runs default to 30000ms so the tool can return accumulated output without waiting forever. RUNTIME WORKING DIRECTORY: the game runs with its working directory set to <project>/runtime/ (NOT the build/exe directory). The engine resolves cwd-relative paths there, so any output it writes — record.txt, DEBUG_LOG.txt, saves — lands under runtime/ and is readable afterward with the read tool at the project-root-relative path "runtime/<file>" (e.g. read "runtime/record.txt" to inspect a recorded run, or "runtime/DEBUG_LOG.txt" for debug logs). Assets are made available inside runtime/ automatically. Desktop (Electron) mode only.',
     parameters: {
       type: 'object',
       properties: {
         debug: { type: 'boolean' },
+        turbo: { type: 'boolean', description: 'Run with --turbo: keeps the normal window/context path but uses synthetic timing for automation runs.' },
+        scenario: { type: 'string', description: 'Path to a scenario file to load via --scenario. A relative path is resolved against the PROJECT ROOT (the same base as read/write/edit/grep_file). Note this is the project root, which is the SAME base used to read runtime output but is NOT itself the program runtime working directory (that is <project>/runtime/); an absolute path is used as-is. So a scenario you authored with the write tool can be replayed by passing the same relative path you wrote it to. Accepts a user-recorded record.txt or an agent-authored scenario. A run started with --record writes its capture to runtime/record.txt, so you can record once and replay it by passing scenario: "runtime/record.txt".' },
         testName: { type: 'string' },
         timeoutMs: { type: 'number' },
       },
@@ -489,6 +496,7 @@ export const SHARED_AGENT_TOOL_SCHEMAS = [
         },
         resourceBindings: {
           type: 'array',
+          description: 'Resource bindings for this node, scoped to the given layer. Each layer keeps its own independent bindings (e.g. design-layer images/sprites vs code-layer source files); bindings added on one layer are not visible on others.',
           items: {
             type: 'object',
             properties: {

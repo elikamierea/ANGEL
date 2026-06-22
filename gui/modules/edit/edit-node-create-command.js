@@ -56,7 +56,7 @@ export function createEditNodeCreateCommand(deps) {
   }
 
   function buildLayerContentSeed(synopsis, detail, status) {
-    return Object.fromEntries(getAllLayerIds().map((lid) => [lid, { synopsis, detail, status }]));
+    return Object.fromEntries(getAllLayerIds().map((lid) => [lid, { synopsis, detail, status, resourceBindings: [] }]));
   }
 
   function createNodeAtPositionByParams(params = {}) {
@@ -100,10 +100,11 @@ export function createEditNodeCreateCommand(deps) {
       h: rect.h,
       parentId: container ? container.id : null,
       childCount: 0,
-      resourceBindings,
       validation: [{ level: 'info', message: 'New node created by agent tool.' }],
       audit: [{ actor: 'agent', time: new Date().toISOString(), tool: 'create_node', target: `node:${id}` }],
     };
+    // Bindings are per-layer; attach them to the layer the node is created in.
+    node.layerContent[layerId].resourceBindings = resourceBindings;
 
     pushHistory();
     nodes.push(node);

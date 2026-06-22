@@ -38,7 +38,7 @@ export function createInteractionPointerUp(deps) {
   } = deps;
 
   function buildLayerContentSeed(synopsis, detail, status) {
-    return Object.fromEntries(getAllLayerIds().map((lid) => [lid, { synopsis, detail, status }]));
+    return Object.fromEntries(getAllLayerIds().map((lid) => [lid, { synopsis, detail, status, resourceBindings: [] }]));
   }
 
   function handlePointerUp(e) {
@@ -132,7 +132,6 @@ export function createInteractionPointerUp(deps) {
           h: draftRect.h,
           parentId: container ? container.id : null,
           childCount: 0,
-          resourceBindings: [],
           validation: [{ level: 'info', message: 'New node created by user.' }],
           audit: [{ actor: 'user', time: '2026-03-20 03:07', tool: 'N+drag', target: `node:${id}` }],
         };
@@ -344,7 +343,6 @@ export function createInteractionPointerUp(deps) {
             childCount: 0,
             isMirror: true,
             mirrorOfId: source.id,
-            resourceBindings: [],
             validation: [{ level: 'info', message: `Mirror of ${source.name}` }],
             audit: [{ actor: 'user', time: '2026-03-21 02:31', tool: 'M+drag', target: `node:${id}` }],
           };

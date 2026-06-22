@@ -1,18 +1,15 @@
 # Angel Engine Manual Index
 
-This manual set is split into focused files so agents and humans can read only what they need.
+This manual set is split by task, not by implementation folder.
 
-## Manual Map
+If you are doing normal gameplay work, start with the gameplay and drawing manuals first.
+Only read the render/testing/platform manuals when you first need those topics.
 
-1. Engine lifecycle → `MANUAL_lifecycle.md`
-2. Debug helpers → `MANUAL_debug_helpers.md`
-3. Object instances → `MANUAL_object_instances.md`
-4. Resources and sprites → `MANUAL_resources_sprites.md`
-5. Renderer / draw API → `MANUAL_renderer_draw_api.md`
-6. Shader effects → `MANUAL_shaders.md`
-7. Game entry and ScenarioRunner → `MANUAL_game_entry.md`
-8. Audio → `MANUAL_audio.md`
-9. Platform layer → `MANUAL_platform.md`
-10. Compatibility notes → `MANUAL_compatibility.md`
+## Primary Manuals
 
-Use this file as the index only. Detailed API/reference content now lives in the per-topic manuals above.
+1. Gameplay core - `MANUAL_gameplay_core.md`
+2. Input, window, and cursor - `MANUAL_input_window.md`
+3. Drawing, sprites, and text - `MANUAL_draw_basics.md`
+4. Advanced rendering and shader effects - `MANUAL_render_advanced.md`
+5. Audio - `MANUAL_audio.md`
+6. Testing and debug - `MANUAL_testing_debug.md`

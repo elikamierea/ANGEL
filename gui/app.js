@@ -296,6 +296,7 @@ const runTestConfirm = document.getElementById('run-test-confirm');
 const runTestInput = document.getElementById('run-test-input');
 const runTestHistory = document.getElementById('run-test-history');
 const runTestDebug = document.getElementById('run-test-debug');
+const runTestRecord = document.getElementById('run-test-record');
 const runTestNote = document.getElementById('run-test-note');
 const executeFailModal = document.getElementById('execute-fail-modal');
 const executeFailClose = document.getElementById('execute-fail-close');
@@ -3359,6 +3360,7 @@ const runTestModalController = createRunTestModalController({
   runTestInput,
   runTestHistory,
   runTestDebug,
+  runTestRecord,
   runTestNote,
 });
 _closeRunTestModalImpl = runTestModalController.closeRunTestModal;
@@ -3473,6 +3475,7 @@ const assetModalBindings = createAssetModalBindings({
     audioBitDepthRow,
     runTestInput,
     runTestDebug,
+    runTestRecord,
     runTestClose,
     runTestCancel,
     runTestConfirm,

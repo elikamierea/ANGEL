@@ -17,6 +17,9 @@ export function createFileTreeUI(deps) {
   } = deps;
 
   let activeContextMenu = null;
+  // All directory paths seen in the previous tree, so a refresh can tell genuinely
+  // new folders (collapse them) apart from ones the user deliberately expanded.
+  const knownDirPaths = new Set();
 
   const TAB_CONFIG = {
     all: { labelKey: 'sidebar.tab.all' },
@@ -56,10 +59,34 @@ export function createFileTreeUI(deps) {
     for (const entry of entries) {
       if (entry.type !== 'directory') continue;
       collapsedFileTreePaths.add(entry.path);
+      knownDirPaths.add(entry.path);
       if (entry.children && entry.children.length > 0) {
         seedCollapsedFileTree(entry.children);
       }
     }
+  }
+
+  // On refresh, collapse only directories we have not seen before so freshly
+  // created resources/folders appear collapsed, while preserving the user's
+  // expand/collapse choices for folders that already existed.
+  function collapseNewDirectories(entries) {
+    const currentDirs = new Set();
+    const walk = (list) => {
+      for (const entry of list) {
+        if (entry.type !== 'directory') continue;
+        currentDirs.add(entry.path);
+        if (!knownDirPaths.has(entry.path)) collapsedFileTreePaths.add(entry.path);
+        if (entry.children && entry.children.length > 0) walk(entry.children);
+      }
+    };
+    walk(entries);
+    // Forget folders that no longer exist (and drop their stale collapsed flag)
+    // so a folder recreated at the same path collapses again next time.
+    for (const path of [...collapsedFileTreePaths]) {
+      if (!currentDirs.has(path)) collapsedFileTreePaths.delete(path);
+    }
+    knownDirPaths.clear();
+    for (const path of currentDirs) knownDirPaths.add(path);
   }
 
   function resetProjectFolderAssociation(message) {
@@ -70,6 +97,7 @@ export function createFileTreeUI(deps) {
     state.projectFileTree = [];
     state.fileTreeError = null;
     collapsedFileTreePaths.clear();
+    knownDirPaths.clear();
     if (message) setStatus(message);
     rebuildSidebarHook();
   }
@@ -316,6 +344,37 @@ export function createFileTreeUI(deps) {
     }
   }
 
+  async function handleCopyRelativePath(entry) {
+    const relPath = String(entry?.path || '').replace(/\\/g, '/').trim();
+    if (!relPath) {
+      setStatus('No relative path available for this item.');
+      return;
+    }
+    try {
+      // Prefer Electron's native clipboard: the renderer's async Clipboard API
+      // is often denied ("Write permission denied") in non-focused/insecure contexts.
+      if (electronAPI?.writeClipboardText) {
+        await electronAPI.writeClipboardText(relPath);
+      } else if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(relPath);
+      } else {
+        // Fallback for non-secure contexts where the async Clipboard API is unavailable.
+        const textarea = document.createElement('textarea');
+        textarea.value = relPath;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      setStatus(`Copied path: ${relPath}`);
+    } catch (error) {
+      console.error('Copy relative path failed', error);
+      setStatus(`Copy path failed: ${error?.message || 'unknown error'}`);
+    }
+  }
+
   async function handleOpenContainingFolder(entry) {
     const target = entry?.type === 'directory'
       ? entry.fullPath
@@ -343,6 +402,7 @@ export function createFileTreeUI(deps) {
     menu.style.top = `${evt.clientY}px`;
     menu.appendChild(createContextMenuButton('Rename', () => handleRenameEntry(entry), { disabled: !electronAPI || !entry?.path || entry?.type === 'resource' }));
     menu.appendChild(createContextMenuButton('Delete', () => handleDeleteEntry(entry), { disabled: !electronAPI || !entry?.path }));
+    menu.appendChild(createContextMenuButton('Copy Relative Path', () => handleCopyRelativePath(entry), { disabled: !entry?.path }));
     menu.appendChild(createContextMenuButton('Open Containing Folder', () => handleOpenContainingFolder(entry), { disabled: !electronAPI || !entry?.fullPath }));
 
     document.body.appendChild(menu);
@@ -512,9 +572,7 @@ export function createFileTreeUI(deps) {
         const entries = Array.isArray(tree) ? tree : [];
         state.projectFileTree = entries;
         state.fileTreeError = null;
-        if (collapsedFileTreePaths.size === 0) {
-          seedCollapsedFileTree(entries);
-        }
+        collapseNewDirectories(entries);
         if (showStatus) setStatus(t('sidebar.status.refreshed'));
       } catch (error) {
         console.error('Failed to read project folder', error);
@@ -541,9 +599,7 @@ export function createFileTreeUI(deps) {
 
     try {
       const tree = await readDirectoryTree(state.currentProjectDirHandle);
-      if (collapsedFileTreePaths.size === 0) {
-        seedCollapsedFileTree(tree);
-      }
+      collapseNewDirectories(tree);
       state.projectFileTree = tree;
       state.fileTreeError = null;
       if (showStatus) setStatus(t('sidebar.status.refreshed'));

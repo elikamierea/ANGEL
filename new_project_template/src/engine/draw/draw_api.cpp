@@ -72,6 +72,10 @@ void surface_destroy(SurfaceHandle handle) {
     Renderer::instance().surface_destroy(handle);
 }
 
+void surface_flush(SurfaceHandle handle, float depth) {
+    Renderer::instance().surface_flush(handle, depth);
+}
+
 bool surface_set_target(SurfaceHandle handle) {
     return Renderer::instance().surface_set_target(handle);
 }
@@ -82,6 +86,10 @@ void surface_reset_target() {
 
 void surface_clear(Color color) {
     Renderer::instance().surface_clear(color);
+}
+
+void surface_clear(float depth, Color color) {
+    Renderer::instance().surface_clear(depth, color);
 }
 
 void surface_draw(SurfaceHandle handle, float x, float y,

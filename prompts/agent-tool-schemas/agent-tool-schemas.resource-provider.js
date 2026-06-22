@@ -22,11 +22,11 @@ const RESOURCE_ONLY_IMAGE_TOOLS = [
   {
     type: 'function',
     name: 'create_sprite',
-    description: 'Generate sprite atlas and metadata from image frame paths. By default an existing sprite at the same path/name is overwritten; set overwrite=false to refuse and keep the existing files instead.',
+    description: 'Generate sprite atlas and metadata from image frame paths. The atlas is composed as a single horizontal row of frames (left-to-right), which is how the engine slices it. All frames MUST share the same pixel dimensions (they are sized from the first frame); if any frame differs the call fails with an error telling you which frame mismatches — resize them to match first. By default an existing sprite at the same path/name is overwritten; set overwrite=false to refuse and keep the existing files instead.',
     parameters: {
       type: 'object',
       properties: {
-        images: { type: 'array', items: { type: 'string' } },
+        images: { type: 'array', items: { type: 'string' }, description: 'Ordered frame image paths (project-root-relative). Every frame must have identical width and height; they are laid out into one horizontal strip in this order.' },
         outPath: { type: 'string' },
         pivotX: { type: 'number' },
         pivotY: { type: 'number' },

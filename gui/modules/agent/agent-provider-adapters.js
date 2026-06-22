@@ -1,5 +1,6 @@
 export function buildCanonicalConversation({
   systemPrompt = '',
+  postSystemPrompt = '',
   developerPrompt = '',
   userPrompt = '',
   userImages = [],
@@ -10,6 +11,13 @@ export function buildCanonicalConversation({
 
   if (String(systemPrompt || '').trim()) {
     turns.push({ role: 'system', text: String(systemPrompt || '').trim() });
+  }
+
+  // Stable, recency-insensitive guidance (e.g. humanize) belongs right after the
+  // system prompt — injected once at the top, not re-appended at the tail each round.
+  const injectedPostSystemPrompt = String(postSystemPrompt || '').trim();
+  if (injectedPostSystemPrompt) {
+    turns.push({ role: 'system', text: injectedPostSystemPrompt, images: [] });
   }
 
   const contextHistory = Array.isArray(timeline)

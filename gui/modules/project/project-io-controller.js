@@ -656,6 +656,7 @@ export function createProjectIOController(deps) {
 
     let testName = '';
     let effectiveMode = mode;
+    let record = false;
     if (mode === 'run-test') {
       const picked = typeof requestRunTestOptions === 'function'
         ? await requestRunTestOptions()
@@ -666,6 +667,7 @@ export function createProjectIOController(deps) {
         return;
       }
       if (picked?.debug) effectiveMode = 'run-debug-test';
+      record = Boolean(picked?.record);
     }
     const label = labelMap[effectiveMode] || (effectiveMode === 'run-debug-test' ? 'Run Test (Debug)' : 'Execute');
 
@@ -678,6 +680,7 @@ export function createProjectIOController(deps) {
         rootPath: state.projectRootPath,
         mode: effectiveMode,
         testName,
+        ...(record ? { record: true } : {}),
       });
 
       const out = String(result?.stdout || '').trim();

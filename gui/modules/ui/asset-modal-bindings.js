@@ -61,6 +61,7 @@ export function createAssetModalBindings(deps) {
     audioModal,
     runTestInput,
     runTestDebug,
+    runTestRecord,
     runTestClose,
     runTestCancel,
     runTestConfirm,
@@ -150,6 +151,7 @@ export function createAssetModalBindings(deps) {
           spriteCreate.disabled = true;
           const result = await createSpriteAtlasAndMetadata();
           closeSpriteModal();
+          if (spriteNameInput) spriteNameInput.value = '';
           setStatus(t('modal.sprite.status.created', {
             pngRelPath: result.pngRelPath,
             txtRelPath: result.txtRelPath,
@@ -264,6 +266,7 @@ export function createAssetModalBindings(deps) {
           fontCreate.disabled = true;
           const result = await createBitmapFontAssets();
           closeFontModal();
+          if (fontNameInput) fontNameInput.value = '';
           setStatus(`Font assets created: ${result.pageCount} page(s), ${result.fontTxtRelPath} (${result.glyphCount} glyphs)`);
         } catch (error) {
           const msg = error instanceof Error ? error.message : String(error || 'unknown error');
@@ -325,6 +328,7 @@ export function createAssetModalBindings(deps) {
           setStatus(t('modal.audio.status.converting'));
           const result = await createAudioAsset();
           closeAudioModal();
+          if (audioNameInput) audioNameInput.value = '';
           if (audioNote) audioNote.textContent = t('modal.audio.status.created', { path: result.path });
           setStatus(t('modal.audio.status.created', { path: result.path }));
         } catch (error) {
@@ -352,7 +356,7 @@ export function createAssetModalBindings(deps) {
         if (evt.key === 'Enter') {
           evt.preventDefault();
           const value = String(runTestInput.value || '').trim();
-          resolveRunTestModal({ testName: value || '', debug: Boolean(runTestDebug?.checked) });
+          resolveRunTestModal({ testName: value || '', debug: Boolean(runTestDebug?.checked), record: Boolean(runTestRecord?.checked) });
         }
       });
     }
@@ -368,7 +372,7 @@ export function createAssetModalBindings(deps) {
     if (runTestConfirm) {
       runTestConfirm.addEventListener('click', () => {
         const value = String(runTestInput?.value || '').trim();
-        resolveRunTestModal({ testName: value || '', debug: Boolean(runTestDebug?.checked) });
+        resolveRunTestModal({ testName: value || '', debug: Boolean(runTestDebug?.checked), record: Boolean(runTestRecord?.checked) });
       });
     }
 

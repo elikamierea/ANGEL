@@ -38,6 +38,20 @@ export function createInteractionKeyboard(deps) {
     }
 
     const cmdOrCtrl = e.ctrlKey || e.metaKey;
+
+    // Ctrl/Cmd+S must work even while a text field is focused. Fields commit
+    // their value on blur, so flush the active edit first, then save, then
+    // restore focus so the user can keep typing.
+    if (cmdOrCtrl && e.code === 'KeyS') {
+      e.preventDefault();
+      if (e.repeat) return;
+      const typingEl = isTypingTarget(e.target) ? e.target : null;
+      if (typingEl && typeof typingEl.blur === 'function') typingEl.blur();
+      runSave();
+      if (typingEl && typeof typingEl.focus === 'function') typingEl.focus();
+      return;
+    }
+
     if (isTypingTarget(e.target)) return;
     if (cmdOrCtrl && hasActiveTextSelection()) return;
 
@@ -73,12 +87,6 @@ export function createInteractionKeyboard(deps) {
       e.preventDefault();
       if (e.repeat) return;
       redo();
-      return;
-    }
-    if (cmdOrCtrl && e.code === 'KeyS') {
-      e.preventDefault();
-      if (e.repeat) return;
-      runSave();
       return;
     }
     if (cmdOrCtrl && e.code === 'KeyN') {

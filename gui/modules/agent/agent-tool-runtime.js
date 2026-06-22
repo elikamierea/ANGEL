@@ -84,21 +84,71 @@ export function createAgentToolRuntime(deps) {
     throw new Error('No opened project folder. Open a project first.');
   }
 
-  // Exact-text replace edit (all occurrences), with explicit failure when oldText not found.
+  // Downscale a data-URL image by `scale` (0..1) on a canvas. Vision-token cost scales with
+  // pixel dimensions, so this is the cheap lever for keeping images small in context.
+  // Returns the original data on any decode/resize failure so reads never hard-fail on scaling.
+  async function downscaleImageDataUrl(dataUrl, mimeType, scale) {
+    try {
+      const img = await new Promise((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(new Error('decode failed'));
+        el.src = dataUrl;
+      });
+      const ow = img.naturalWidth || img.width;
+      const oh = img.naturalHeight || img.height;
+      if (!ow || !oh) return { dataUrl, mimeType, scaled: false };
+      const tw = Math.max(1, Math.round(ow * scale));
+      const th = Math.max(1, Math.round(oh * scale));
+      if (tw >= ow && th >= oh) return { dataUrl, mimeType, scaled: false, width: ow, height: oh };
+
+      const canvas = document.createElement('canvas');
+      canvas.width = tw;
+      canvas.height = th;
+      const ctx = canvas.getContext('2d');
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.clearRect(0, 0, tw, th);
+      ctx.drawImage(img, 0, 0, tw, th);
+
+      // Keep JPEG as JPEG (smaller for photos); everything else re-encodes to PNG to preserve alpha.
+      const outMime = /jpe?g/i.test(String(mimeType || '')) ? 'image/jpeg' : 'image/png';
+      const outUrl = outMime === 'image/jpeg'
+        ? canvas.toDataURL(outMime, 0.9)
+        : canvas.toDataURL(outMime);
+      return { dataUrl: outUrl, mimeType: outMime, scaled: true, width: tw, height: th, originalWidth: ow, originalHeight: oh };
+    } catch {
+      return { dataUrl, mimeType, scaled: false };
+    }
+  }
+
   async function readImageByParams(params = {}) {
     const relPath = normalizeToolRelativePath(params.path);
     if (!relPath) throw new Error('path is required');
 
+    // Default to 1/3 on each axis (~1/9 the pixels) to keep vision cost low; pass scale=1 for
+    // full resolution, or any value in (0, 1] to tune. Values outside the range are clamped.
+    const scaleRaw = Number(params.scale);
+    const scale = Number.isFinite(scaleRaw) && scaleRaw > 0 ? Math.min(1, scaleRaw) : (1 / 3);
+
     if (electronAPI && state.projectRootPath && electronAPI.readBinaryAsDataUrl) {
       const loaded = await electronAPI.readBinaryAsDataUrl({ rootPath: state.projectRootPath, path: relPath });
       if (!loaded?.ok || !loaded?.dataUrl) throw new Error(`failed to read image: ${relPath}`);
+
+      const baseMime = String(loaded.mimeType || 'image/png');
+      const out = scale < 1
+        ? await downscaleImageDataUrl(String(loaded.dataUrl), baseMime, scale)
+        : { dataUrl: String(loaded.dataUrl), mimeType: baseMime, scaled: false };
+
       return {
         ok: true,
+        scaled: Boolean(out.scaled),
+        ...(out.scaled ? { scale, width: out.width, height: out.height, originalWidth: out.originalWidth, originalHeight: out.originalHeight } : {}),
         _attachImages: [{
           id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
           name: relPath.split('/').pop() || 'image',
-          mimeType: String(loaded.mimeType || 'image/png'),
-          dataUrl: String(loaded.dataUrl),
+          mimeType: String(out.mimeType || baseMime),
+          dataUrl: String(out.dataUrl),
         }],
       };
     }
@@ -163,6 +213,7 @@ export function createAgentToolRuntime(deps) {
     '.exe', '.dll', '.so', '.dylib', '.bin', '.pdf', '.docx', '.xlsx', '.pptx', '.class', '.jar', '.wasm',
   ]);
   const GREP_MAX_FILE_BYTES = 2_000_000;
+  const GREP_AUTO_CHAR_BUDGET = 500;
 
   function extOf(name) {
     const idx = String(name).lastIndexOf('.');
@@ -210,11 +261,12 @@ export function createAgentToolRuntime(deps) {
       if (!opts.re.test(line)) continue;
       fileCount += 1;
       acc.totalMatches += 1;
-      if (opts.outputMode === 'content' && acc.matches.length < opts.headLimit) {
+      const collectsContent = opts.outputMode === 'content' || opts.outputMode === 'auto';
+      if (collectsContent && acc.matches.length < opts.headLimit) {
         const text = line.length > 300 ? `${line.slice(0, 300)}…` : line;
         acc.matches.push({ path: relPath, line: i + 1, text: text.trim() });
       }
-      if (opts.outputMode === 'content' && fileCount >= opts.perFileLimit) break;
+      if (collectsContent && fileCount >= opts.perFileLimit) break;
     }
     if (fileCount > 0) acc.files.set(relPath, fileCount);
   }
@@ -257,6 +309,48 @@ export function createAgentToolRuntime(deps) {
     const files = [...acc.files.entries()]
       .map(([p, count]) => ({ path: p, count }))
       .sort((a, b) => b.count - a.count || a.path.localeCompare(b.path));
+
+    if (outputMode === 'auto') {
+      const matchesComplete = acc.totalMatches === acc.matches.length;
+      if (matchesComplete && acc.matches.length > 0
+          && JSON.stringify(acc.matches).length <= GREP_AUTO_CHAR_BUDGET) {
+        return {
+          ok: true,
+          pattern,
+          outputMode,
+          representation: 'content',
+          totalMatches: acc.totalMatches,
+          returned: acc.matches.length,
+          truncated: false,
+          matches: acc.matches,
+        };
+      }
+      const picked = [];
+      let used = 0;
+      for (const f of files) {
+        if (picked.length >= headLimit) break;
+        const cost = JSON.stringify(f).length + 1;
+        if (picked.length > 0 && used + cost > GREP_AUTO_CHAR_BUDGET) break;
+        picked.push(f);
+        used += cost;
+      }
+      const autoTruncated = files.length > picked.length;
+      return {
+        ok: true,
+        pattern,
+        outputMode,
+        representation: 'files_with_matches',
+        totalFiles: files.length,
+        totalMatches: acc.totalMatches,
+        returned: picked.length,
+        truncated: autoTruncated,
+        ...(autoTruncated
+          ? { hint: 'Auto-trimmed to ~500 chars. For more detail re-run with output_mode:"content" (matching lines) or "files_with_matches" (all files), and/or narrow path/glob/pattern.' }
+          : {}),
+        files: picked,
+      };
+    }
+
     const returned = files.slice(0, headLimit);
     const truncated = files.length > returned.length;
     return {
@@ -275,9 +369,9 @@ export function createAgentToolRuntime(deps) {
   async function grepFilesByParams(params = {}) {
     const pattern = String(params.pattern ?? '');
     if (!pattern) throw new Error('pattern is required');
-    const outputMode = ['files_with_matches', 'content', 'count'].includes(params.output_mode)
+    const outputMode = ['auto', 'files_with_matches', 'content', 'count'].includes(params.output_mode)
       ? params.output_mode
-      : 'files_with_matches';
+      : 'auto';
     const headLimit = Number.isFinite(Number(params.head_limit))
       ? Math.max(1, Math.min(500, Math.trunc(Number(params.head_limit))))
       : 50;
@@ -368,6 +462,9 @@ export function createAgentToolRuntime(deps) {
         mode,
         testName,
         timeoutMs,
+        ...(options.turbo ? { turbo: true } : {}),
+        ...(options.record ? { record: true } : {}),
+        ...(options.scenario ? { scenario: String(options.scenario) } : {}),
       });
       const ok = typeof res?.ok === 'boolean' ? res.ok : res?.code === 0;
       return {
@@ -387,19 +484,64 @@ export function createAgentToolRuntime(deps) {
     throw new Error('Project execute is only available in desktop mode with an opened project folder.');
   }
 
-  async function compileProjectByParams() {
-    return executeProjectMode('compile', '');
+  async function compileProjectByParams(params = {}) {
+    const fullOutput = Boolean(params && params.fullOutput);
+    const result = await executeProjectMode('compile', '');
+    // fullOutput=true → return the complete compiler output (legacy behavior).
+    if (fullOutput) return result;
+
+    // Default: keep the payload tiny. On success report just pass/fail; on
+    // failure return only the error lines instead of several KB of build log.
+    if (result.ok) {
+      return { ok: true, mode: result.mode, code: result.code, compiled: true };
+    }
+
+    const MAX_COMPILE_ERROR_LINES = 60;
+    const combined = `${String(result.stderr || '')}\n${String(result.stdout || '')}`;
+    const allLines = combined.split(/\r?\n/).map((l) => l.replace(/\s+$/, '')).filter((l) => l.trim());
+    const errorRe = /(?:^|[\s:[(])(?:error|fatal|exception|undefined reference|cannot find|failed)\b/i;
+    const seen = new Set();
+    let errorLines = [];
+    for (const line of allLines) {
+      if (!errorRe.test(line)) continue;
+      if (seen.has(line)) continue;
+      seen.add(line);
+      errorLines.push(line);
+      if (errorLines.length >= MAX_COMPILE_ERROR_LINES) break;
+    }
+    // Failed build with no recognizable error keyword: fall back to the tail of
+    // the output so the agent isn't left blind.
+    let fallbackUsed = false;
+    if (errorLines.length === 0 && allLines.length > 0) {
+      errorLines = allLines.slice(-MAX_COMPILE_ERROR_LINES);
+      fallbackUsed = true;
+    }
+    const truncated = errorLines.length >= MAX_COMPILE_ERROR_LINES;
+    return {
+      ok: false,
+      mode: result.mode,
+      code: result.code,
+      canceled: result.canceled,
+      timedOut: result.timedOut,
+      errorLines,
+      errorLineCount: errorLines.length,
+      truncated,
+      ...(fallbackUsed ? { note: 'No error-keyword lines matched; showing the tail of the compiler output instead.' } : {}),
+      hint: 'Showing error lines only. Call compile_project with fullOutput=true for the complete compiler output.',
+    };
   }
 
   async function runProjectByParams(params = {}) {
     const debug = Boolean(params.debug);
+    const turbo = Boolean(params.turbo);
+    const scenario = String(params.scenario || '').trim();
     const testName = String(params.testName || '').trim();
     const timeoutMsRaw = Number(params.timeoutMs);
     const timeoutMs = Number.isFinite(timeoutMsRaw) && timeoutMsRaw > 0
       ? Math.min(600000, Math.max(1000, Math.trunc(timeoutMsRaw)))
       : 30000;
     const mode = testName ? (debug ? 'run-debug-test' : 'run-test') : (debug ? 'run-debug' : 'run');
-    return executeProjectMode(mode, testName, { timeoutMs });
+    return executeProjectMode(mode, testName, { timeoutMs, turbo, scenario });
   }
 
   // Lightweight fetch with retry-on-transient-status and simple HTML text/link extraction.

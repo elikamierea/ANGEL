@@ -6,7 +6,6 @@
 
 namespace engine::instance {
 
-void queue_destroy_instance(engine::base::ObjectGrandBase* instance);
 void destroy_instance(engine::base::ObjectGrandBase* instance);
 void flush_destroy_queue();
 void register_instance(engine::base::ObjectGrandBase* instance);

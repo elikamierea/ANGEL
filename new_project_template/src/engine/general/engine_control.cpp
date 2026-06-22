@@ -207,7 +207,7 @@ double compute_turbo_delta_time() {
 
 Engine::Engine(platform::Window& window) : m_window(window) {}
 
-bool Engine::initialize(const std::string& testName) {
+bool Engine::initialize(const std::string& testName, const std::string& scenarioPath) {
     if (m_initialized) {
         return true;
     }
@@ -245,6 +245,16 @@ bool Engine::initialize(const std::string& testName) {
     g_gameRunning = true;
     engine::debug::scenario().reset_runtime_state();
     g_recordLines.clear();
+
+    if (!scenarioPath.empty()) {
+        if (!engine::debug::scenario().load_scenario_from_file(scenarioPath)) {
+            engine::debug::log_error("Engine scenario mode initialization failed: " + scenarioPath);
+            return false;
+        }
+        engine::debug::scenario().begin();
+        engine::debug::log_info("Engine scenario mode initialized: " + scenarioPath);
+    }
+
     if (!testName.empty()) {
         ::__GameTest__(testName);
         if (engine::debug::scenario().has_actions()) {
@@ -272,7 +282,7 @@ void Engine::run() {
 
     while (is_game_running() && !m_window.should_close()) {
         const auto frameStart = clock::now();
-        if (g_turboEnabled) {
+        if (g_turboEnabled || g_recordEnabled || engine::debug::scenario().active()) {
             g_deltaTime = compute_turbo_delta_time();
         } else {
             g_deltaTime = std::chrono::duration<double>(frameStart - lastFrameStart).count();

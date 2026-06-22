@@ -82,10 +82,10 @@ export function createAgentToolContext(deps) {
       childrenByParent.get(key).push(node);
     }
 
-    const walk = (node, depth) => {
-      visitNode(node, depth, lid);
+    const walk = (node, depth, parentName) => {
+      visitNode(node, depth, lid, parentName);
       const children = childrenByParent.get(node.id) || [];
-      for (const child of children) walk(child, depth + 1);
+      for (const child of children) walk(child, depth + 1, String(node.name || ''));
     };
 
     const normalizedRootName = String(rootName || '').trim();
@@ -98,7 +98,7 @@ export function createAgentToolContext(deps) {
           found: false,
         };
       }
-      walk(rootNode, 0);
+      walk(rootNode, 0, '');
       return {
         layer: lid,
         root: normalizedRootName,
@@ -107,18 +107,20 @@ export function createAgentToolContext(deps) {
     }
 
     const roots = childrenByParent.get('__ROOT__') || [];
-    for (const root of roots) walk(root, 0);
+    for (const root of roots) walk(root, 0, '');
     return { layer: lid };
   }
 
   function getVisibleNodesDfsSummaryByLayer(layerId, rootName) {
     const out = [];
-    const meta = createVisibleTreeWalker(layerId, rootName, (node, depth, lid) => {
+    const meta = createVisibleTreeWalker(layerId, rootName, (node, depth, lid, parentName) => {
       const content = getNodeLayerContent(node, lid);
       const synopsis = String(content?.synopsis || content?.summary || node.synopsis || node.summary || '').trim();
+      const fa = String(parentName || '').trim();
       out.push({
         name: String(node.name || ''),
         depth,
+        ...(fa ? { fa } : {}),
         ...(synopsis ? { synopsis } : {}),
       });
     });
@@ -143,14 +145,16 @@ export function createAgentToolContext(deps) {
 
   function getVisibleEmptyDetailNodesDfsSummaryByLayer(layerId, rootName) {
     const out = [];
-    const meta = createVisibleTreeWalker(layerId, rootName, (node, depth, lid) => {
+    const meta = createVisibleTreeWalker(layerId, rootName, (node, depth, lid, parentName) => {
       const content = getNodeLayerContent(node, lid);
       const detail = String(content?.detail || node.detail || '').trim();
       if (detail) return;
       const synopsis = String(content?.synopsis || content?.summary || node.synopsis || node.summary || '').trim();
+      const fa = String(parentName || '').trim();
       out.push({
         name: String(node.name || ''),
         depth,
+        ...(fa ? { fa } : {}),
         ...(synopsis ? { synopsis } : {}),
       });
     });
@@ -242,7 +246,7 @@ export function createAgentToolContext(deps) {
         detail: String(content?.detail || node.detail || ''),
         status: String(content?.status || node.status || 'active'),
         lrtb: buildNodeLrtb(node),
-        resourceBindings: Array.isArray(node.resourceBindings) ? node.resourceBindings : [],
+        resourceBindings: Array.isArray(content?.resourceBindings) ? content.resourceBindings : [],
       },
       connectedEdges,
     };
@@ -324,8 +328,8 @@ export function createAgentToolContext(deps) {
     if (!pattern) throw new Error('pattern is required');
 
     const rootName = String(params.root || '').trim();
-    const headLimit = Number.isFinite(Number(params.headLimit))
-      ? Math.max(1, Math.min(500, Math.trunc(Number(params.headLimit))))
+    const headLimit = Number.isFinite(Number(params.head_limit))
+      ? Math.max(1, Math.min(500, Math.trunc(Number(params.head_limit))))
       : 50;
 
     const hasUpper = /[A-Z]/.test(pattern);

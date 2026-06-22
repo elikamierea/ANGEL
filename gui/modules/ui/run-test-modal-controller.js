@@ -1,5 +1,5 @@
 export function createRunTestModalController(deps) {
-  const { runTestModal, runTestInput, runTestHistory, runTestDebug, runTestNote } = deps;
+  const { runTestModal, runTestInput, runTestHistory, runTestDebug, runTestRecord, runTestNote } = deps;
 
   let pendingRunTestResolver = null;
   const recentTestNames = [];
@@ -56,6 +56,7 @@ export function createRunTestModalController(deps) {
 
     if (runTestInput.value.trim() === '') runTestInput.value = recentTestNames[0] || 'smoke';
     if (runTestDebug) runTestDebug.checked = false;
+    if (runTestRecord) runTestRecord.checked = false;
     if (runTestNote) runTestNote.textContent = 'Enter test case name';
     renderRecentTestHistory();
 

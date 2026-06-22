@@ -169,7 +169,8 @@ export function createInspectorUI(deps) {
       setEditorLocked(false, '');
     }
 
-    const bindings = Array.isArray(selected.resourceBindings) ? selected.resourceBindings : [];
+    const selectedLayerContent = getNodeLayerContent(selected);
+    const bindings = Array.isArray(selectedLayerContent.resourceBindings) ? selectedLayerContent.resourceBindings : [];
     blockBinding.innerHTML = '';
     if (bindings.length === 0) {
       const li = document.createElement('li');
@@ -197,10 +198,13 @@ export function createInspectorUI(deps) {
       btn.addEventListener('click', () => {
         const target = getSelectedNode();
         if (!target) return;
+        const targetLayerContent = getNodeLayerContent(target);
+        const targetBindings = Array.isArray(targetLayerContent.resourceBindings) ? targetLayerContent.resourceBindings : [];
         const index = Number(btn.dataset.bindingIndex);
-        if (!Number.isInteger(index) || index < 0 || index >= target.resourceBindings.length) return;
+        if (!Number.isInteger(index) || index < 0 || index >= targetBindings.length) return;
         pushHistory();
-        target.resourceBindings.splice(index, 1);
+        targetBindings.splice(index, 1);
+        targetLayerContent.resourceBindings = targetBindings;
         target.dirty = true;
         target.revision += 1;
         fieldExpectedRevision.value = String(target.revision);
@@ -364,18 +368,19 @@ export function createInspectorUI(deps) {
       return;
     }
 
-    if (!Array.isArray(selected.resourceBindings)) {
-      selected.resourceBindings = [];
+    const selectedLayerContent = getNodeLayerContent(selected);
+    if (!Array.isArray(selectedLayerContent.resourceBindings)) {
+      selectedLayerContent.resourceBindings = [];
     }
 
-    const duplicated = selected.resourceBindings.some((entry) => entry.path === path && (entry.description || entry.block || '') === description);
+    const duplicated = selectedLayerContent.resourceBindings.some((entry) => entry.path === path && (entry.description || entry.block || '') === description);
     if (duplicated) {
       setStatus(t('inspector.status.addBindingDuplicate'));
       return;
     }
 
     pushHistory();
-    selected.resourceBindings.push({ path, description });
+    selectedLayerContent.resourceBindings.push({ path, description });
     selected.dirty = true;
     selected.revision += 1;
     fieldExpectedRevision.value = String(selected.revision);

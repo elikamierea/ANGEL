@@ -6,6 +6,7 @@
 
 int main(int argc, char** argv) {
     std::string testName;
+    std::string scenarioPath;
     bool debugEnabled = false;
     bool turboEnabled = false;
     bool recordEnabled = false;
@@ -24,6 +25,16 @@ int main(int argc, char** argv) {
 
         if (arg == "--record") {
             recordEnabled = true;
+            continue;
+        }
+
+        if (arg == "--scenario") {
+            if (i + 1 >= argc) {
+                engine::debug::set_enabled(true);
+                engine::debug::log_error("Missing scenario path after --scenario");
+                return -1;
+            }
+            scenarioPath = argv[++i];
             continue;
         }
 
@@ -48,7 +59,7 @@ int main(int argc, char** argv) {
     }
 
     engine::general::Engine engine(window);
-    if (!engine.initialize(testName)) {
+    if (!engine.initialize(testName, scenarioPath)) {
         window.shutdown();
         return -1;
     }

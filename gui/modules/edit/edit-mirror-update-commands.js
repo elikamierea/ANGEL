@@ -33,7 +33,7 @@ export function createEditMirrorUpdateCommands(deps) {
   } = deps;
 
   function buildLayerContentSeed(synopsis, detail, status) {
-    return Object.fromEntries(getAllLayerIds().map((lid) => [lid, { synopsis, detail, status }]));
+    return Object.fromEntries(getAllLayerIds().map((lid) => [lid, { synopsis, detail, status, resourceBindings: [] }]));
   }
 
   function normalizeMirrorTopLeft(params = {}) {
@@ -108,10 +108,11 @@ export function createEditMirrorUpdateCommands(deps) {
       childCount: 0,
       isMirror: true,
       mirrorOfId: source.id,
-      resourceBindings,
       validation: [{ level: 'info', message: `Mirror of ${source.name}` }],
       audit: [{ actor: 'agent', time: new Date().toISOString(), tool: 'create_mirror', target: `node:${id}` }],
     };
+    // Bindings are per-layer; attach them to the layer the mirror is created in.
+    mirrorNode.layerContent[layerId].resourceBindings = resourceBindings;
 
     nodes.push(mirrorNode);
     recomputeAllContainmentFromGeometry();
@@ -194,7 +195,7 @@ export function createEditMirrorUpdateCommands(deps) {
     const shouldUpdateBindings = Object.prototype.hasOwnProperty.call(params, 'resourceBindings');
     const resourceBindings = shouldUpdateBindings
       ? normalizeResourceBindings(params.resourceBindings)
-      : node.resourceBindings;
+      : (Array.isArray(layerData.resourceBindings) ? layerData.resourceBindings : []);
 
     pushHistory();
 
@@ -204,7 +205,8 @@ export function createEditMirrorUpdateCommands(deps) {
     node.w = nextRect.w;
     node.h = nextRect.h;
     node.colorIndex = colorIndex;
-    if (shouldUpdateBindings) node.resourceBindings = resourceBindings;
+    // Bindings are per-layer: write to the requested/active layer only.
+    if (shouldUpdateBindings) layerData.resourceBindings = resourceBindings;
 
     layerData.synopsis = synopsis;
     layerData.detail = detail;

@@ -76,9 +76,11 @@ void shader_set_uniform_vec4(ShaderHandle handle, const std::string& name, float
 SurfaceHandle surface_create(int width, int height);
 void surface_set_texture_filter(SurfaceHandle handle, TextureFilter filter);
 void surface_destroy(SurfaceHandle handle);
+void surface_flush(SurfaceHandle handle, float depth = 0.0f);
 bool surface_set_target(SurfaceHandle handle);
 void surface_reset_target();
 void surface_clear(Color color = {});
+void surface_clear(float depth, Color color);
 void surface_draw(SurfaceHandle handle, float x, float y,
                   float depth = 0.0f,
                   float xscale = 1.0f, float yscale = 1.0f,

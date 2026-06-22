@@ -253,13 +253,19 @@ export function createAgentRuntime(deps) {
     }
   }
 
-  function buildInjectedDeveloperPrompt(suffixPrompt, humanizePrompt) {
-    const parts = [];
+  // Suffix is recency-sensitive behavior anchoring: it rides at the TAIL of the
+  // conversation and is re-injected every loop round so it stays adjacent to the
+  // model's next generation.
+  function buildInjectedDeveloperPrompt(suffixPrompt) {
     const suffix = String(suffixPrompt || '').trim();
+    return suffix ? `[agent-suffix]\n${suffix}` : '';
+  }
+
+  // Humanize is stable style guidance: it belongs right after the system prompt
+  // (injected once at the top), NOT bundled with the suffix at the tail.
+  function buildHumanizeSystemBlock(humanizePrompt) {
     const humanize = String(humanizePrompt || '').trim();
-    if (suffix) parts.push(`[agent-suffix]\n${suffix}`);
-    if (humanize) parts.push(`[agent-humanize]\n${humanize}`);
-    return parts.join('\n\n').trim();
+    return humanize ? `[agent-humanize]\n${humanize}` : '';
   }
 
   async function getAgentResponsesInput(userPrompt, agentId) {
@@ -267,9 +273,11 @@ export function createAgentRuntime(deps) {
     const suffixPrompt = await loadAgentSuffixPrompt(agentId);
     const settings = getAgentModelSettings?.() || {};
     const humanizePrompt = settings?.humanizeEnabled ? await loadAgentHumanizePrompt(agentId) : '';
-    const developerPrompt = buildInjectedDeveloperPrompt(suffixPrompt, humanizePrompt);
+    const developerPrompt = buildInjectedDeveloperPrompt(suffixPrompt);
+    const postSystemPrompt = buildHumanizeSystemBlock(humanizePrompt);
     const turns = buildCanonicalConversation({
       systemPrompt,
+      postSystemPrompt,
       developerPrompt,
       userPrompt,
       timeline: [],
@@ -306,7 +314,8 @@ export function createAgentRuntime(deps) {
     const suffixPrompt = await loadAgentSuffixPrompt(agentId);
     const settings = getAgentModelSettings?.() || {};
     const humanizePrompt = settings?.humanizeEnabled ? await loadAgentHumanizePrompt(agentId) : '';
-    const developerPrompt = buildInjectedDeveloperPrompt(suffixPrompt, humanizePrompt);
+    const developerPrompt = buildInjectedDeveloperPrompt(suffixPrompt);
+    const postSystemPrompt = buildHumanizeSystemBlock(humanizePrompt);
     const canonicalTurns = typeof getCanonicalTurnsByAgent === 'function'
       ? getCanonicalTurnsByAgent(agentId)
       : null;
@@ -314,6 +323,9 @@ export function createAgentRuntime(deps) {
       const turns = [];
       if (String(systemPrompt || '').trim()) {
         turns.push({ role: 'system', text: String(systemPrompt || '').trim() });
+      }
+      if (postSystemPrompt) {
+        turns.push({ role: 'system', text: postSystemPrompt, images: [] });
       }
       for (const item of canonicalTurns) {
         if (!item) continue;
@@ -330,6 +342,7 @@ export function createAgentRuntime(deps) {
     const timeline = getTimelineByAgent(agentId);
     return buildCanonicalConversation({
       systemPrompt,
+      postSystemPrompt,
       developerPrompt,
       userPrompt: '',
       userImages: [],

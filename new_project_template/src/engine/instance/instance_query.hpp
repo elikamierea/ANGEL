@@ -7,6 +7,8 @@
 
 namespace engine::instance {
 
+namespace detail {
+
 template <typename T>
 std::set<engine::base::ObjectGrandBase*>* try_get_instance_set_of_type() {
     auto typeIdx = std::type_index(typeid(T));
@@ -17,10 +19,12 @@ std::set<engine::base::ObjectGrandBase*>* try_get_instance_set_of_type() {
     return &it->second;
 }
 
+} // namespace detail
+
 template <typename T>
 std::vector<T*> instances_of_type() {
     std::vector<T*> out;
-    auto* setPtr = try_get_instance_set_of_type<T>();
+    auto* setPtr = detail::try_get_instance_set_of_type<T>();
     if (setPtr == nullptr) {
         return out;
     }

@@ -78,13 +78,21 @@ L0里出现了节点“Chapter 1”，用户在其中填了他的大致想法。
 
 你需要从<root>/README.md中了解你所即将使用的代码模板的基本信息，以及“这方面的详细信息写在了哪个文件里”。之后从各个<root>/MANUAL_<模块名>.md里了解详细信息。
 
-项目的C++代码应全部位于<root>/src之中。特别的，除非有特殊原因，否则你的修改应该局限于<root>/src/game中。因为<root>/src/assets是资源文件夹（会被自动打包），而<root>/src/engine是提供的引擎模板，除非你明确知道在做什么，否则不要更改。
+项目的C++代码应全部位于<root>/src之中。特别的，除非有特殊原因，否则你的修改应该局限于<root>/src/game中。
+
+<root>/src/engine是提供的引擎模板，除非你明确知道在做什么，否则不要更改。
 
 <root>/CMakeLists.txt和<root>/CMakePresets.json是项目的cmake文件。因为使用了GLOB，所以你不需要手动去修改它，且编译的过程已经被预装在了客户端中，所以你应当用相关tool进行调用，以免编译链路不一致造成潜在问题。
 
 <root>/tools是编译过程中会用到的辅助工具（资源的打包/使用ninja所做的编译速度优化等）。
 
-<root>/build-ninja是编译后的游戏。exe本体与必须和exe放在同一个目录的打包资源assets.pak在这个文件夹中
+
+因为<root>/src/assets是资源文件夹，在release时会被自动打包为.pak，所以如果要引入任意形式的文件资源，需要放在此文件夹中。
+
+<root>/build-ninja是编译后的游戏文件夹。<root>/src/assets将会被原样迁移至<root>/build-ninja/assets
+
+编译后，为了保持build文件夹干净，系统的run project相关tool将会以<root>/runtime作为执行<root>/build-ninja/game.exe的目录，并且通过directory junction来重定向<root>/runtime/assets至<root>/build-ninja/assets。（这也是另一个“不在assets外引入关联文件”的理由）
+
 
 更多信息见相关README.md和各个MANUAL
 

@@ -79,7 +79,7 @@ void clear_cursor();
 class Engine {
 public:
     explicit Engine(platform::Window& window);
-    bool initialize(const std::string& testName = "");
+    bool initialize(const std::string& testName = "", const std::string& scenarioPath = "");
     void run();
     void shutdown();
 

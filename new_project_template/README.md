@@ -1,118 +1,219 @@
-# Angel Engine (Spec v0.1 Implementation)
+# Angel Engine
 
-A modular C++17 2D engine with a GLFW platform layer, OpenGL 3.3 renderer, deferred-destroy instance model, PCM-driven audio playback, and agent-friendly test/debug hooks.
+Angel Engine is a C++17 2D game template.
 
-## Directory Layout
+For normal gameplay code:
+- put startup code in `src/game/game_entry.cpp`
+- include `#include "game/ANGEL.h"`
+- create objects by deriving from `ObjectGrandBase`
 
-```text
-workplace/
-├── CMakeLists.txt
-├── README.md
-├── MANUAL.md                      # index into the split manuals
-├── MANUAL_lifecycle.md
-├── MANUAL_debug_helpers.md
-├── MANUAL_object_instances.md
-├── MANUAL_resources_sprites.md
-├── MANUAL_renderer_draw_api.md
-├── MANUAL_shaders.md
-├── MANUAL_game_entry.md
-├── MANUAL_audio.md
-├── MANUAL_platform.md
-├── MANUAL_compatibility.md
-├── src/
-│   ├── engine/
-│   │   ├── base/
-│   │   ├── clock/
-│   │   ├── debug/
-│   │   ├── draw/
-│   │   ├── general/
-│   │   ├── instance/
-│   │   └── utils/
-│   ├── game/
-│   ├── platform/
-│   └── main.cpp
-├── vendor/
-└── build/
+The goal of this README is only to get you started quickly.
+
+If you need more than the basics in this README:
+- normal gameplay lifecycle, objects, instance queries, and frame timing -> `MANUAL_gameplay_core.md`
+- keyboard, mouse, window, and cursor APIs -> `MANUAL_input_window.md`
+- sprites, primitive drawing, text, and resource-path rules -> `MANUAL_draw_basics.md`
+- surfaces, render ordering, and shader-backed surface effects -> `MANUAL_render_advanced.md`
+- sound playback, music playback, and audio volume controls -> `MANUAL_audio.md`
+- `__GameTest__(...)`, ScenarioRunner, screenshots, `--scenario`, `--record`, and `--turbo` -> `MANUAL_testing_debug.md`
+
+## Minimal Game Example
+
+This is the smallest normal gameplay shape:
+- define one object
+- create it in `__GameStart__()`
+- move it with `delta_time()`
+
+```cpp
+#include "game/ANGEL.h"
+
+class MovingBox final : public ObjectGrandBase {
+public:
+    std::type_index __GetTypeIndex__() const override {
+        return typeid(MovingBox);
+    }
+
+    void __Step__() override {
+        x += speed * static_cast<float>(delta_time());
+    }
+
+    void __Draw__() override {
+        draw_rectangle(x, y, 32.0f, 32.0f, 0.0f, {1.0f, 0.3f, 0.3f, 1.0f});
+    }
+
+private:
+    float x{40.0f};
+    float y{60.0f};
+    float speed{120.0f};
+};
+
+void __GameStart__() {
+    set_vsync_enabled(true);
+    set_target_fps(60);
+    create_instance<MovingBox>();
+}
 ```
 
-## Object System
+What this shows:
+- `__GameStart__()` is your normal startup hook
+- `create_instance<T>()` creates a live gameplay object and calls its `__Create__()`
+- `__Step__()` runs once per frame for logic
+- `__Draw__()` runs once per frame for rendering
+- `delta_time()` returns elapsed seconds since the previous frame
 
-Angel Engine uses a lightweight runtime object model built around `ObjectGrandBase`:
+## Minimal Sprite Example
 
-- live objects usually derive from `engine::base::ObjectGrandBase` (or the convenience subclass `engine::base::ObjectBase`) and participate in one step pass and one draw pass per frame, typically by overriding a shape like:
-  ```cpp
-  class Player : public engine::base::ObjectGrandBase {
-  public:
-      std::type_index __GetTypeIndex__() const override { return typeid(Player); }
-      void __Step__() override { /* per-frame logic */ }
-      void __Draw__() override { /* optional rendering */ }
-  };
-  ```
-- instances are tracked by runtime type
-- gameplay-managed objects should normally be created with `create_instance<T>(...)` and destroyed with `destroy_instance(...)`
-- destruction is deferred through a destroy queue instead of immediate deletion
-- typed gameplay queries are available (`instances_of_type<T>()`, etc.)
+For sprite-based drawing, the recommended default path is the cached `ResourceManager`.
 
-This is the core gameplay model of the engine, so read this first if you are working on game logic:
+```cpp
+#include "game/ANGEL.h"
 
-- object model / lifetime / queries → `MANUAL_object_instances.md`
+class PlayerSprite final : public ObjectGrandBase {
+public:
+    std::type_index __GetTypeIndex__() const override {
+        return typeid(PlayerSprite);
+    }
 
-## Build
+    void __Create__() override {
+        sprite = &engine::utils::ResourceManager::instance().load_sprite("assets/image/player", 0);
+    }
 
-In `project/`:
+    void __Draw__() override {
+        if (sprite != nullptr) {
+            draw_sprite(120.0f, 80.0f, *sprite, 0, 0.0f);
+        }
+    }
 
-```powershell
-cmake --preset ninja-release
-cmake --build --preset build-ninja-release
+private:
+    const Sprite* sprite{nullptr};
+};
+
+void __GameStart__() {
+    create_instance<PlayerSprite>();
+}
 ```
 
-Output binary:
+For `load_sprite("assets/image/player", 0)`, the runtime expects:
+- `assets/image/player.png`
+- `assets/image/player.txt`
 
-- `build-ninja/game.exe`
+Use logical `assets/...` paths. Do not pass absolute paths.
 
-## Runtime Summary
+## Common API
 
-- Single GLFW window + OpenGL 3.3 context
-- Per-frame step/draw loop via `engine::clock::FrameRunner`
-- Deferred destruction after the step pass
-- Lightweight surface-oriented fragment shader effects are available for small local visual effects
-- Runtime asset lookup order:
-  1. `assets.pak`
-  2. `assets/` directory
+These are the main APIs most gameplay code reaches for first.
 
-See:
-- lifecycle → `MANUAL_lifecycle.md`
-- resources/sprites → `MANUAL_resources_sprites.md`
-- renderer/draw API → `MANUAL_renderer_draw_api.md`
-- shader effects → `MANUAL_shaders.md`
+### Include
 
-## Testing / Automation
+```cpp
+#include "game/ANGEL.h"
+```
 
-- `--test <name>` routes startup into `src/game/game_test.cpp` via `__GameTest__(name)`.
-- `--turbo` keeps the normal window/context path but uses synthetic timing for automation runs.
-- `--record` records the startup random seed, keyboard transitions, mouse-button transitions, per-frame mouse position, and non-zero scroll deltas, then writes `record.txt` into the executable working directory when the program exits.
-- `--debug` enables debug logging only. It does **not** disable screenshots, ScenarioRunner automation, or `--turbo` when omitted.
+### Game Startup
 
-Scenario details, file format, and recording compatibility live in:
-- `MANUAL_game_entry.md`
-- `MANUAL_debug_helpers.md`
+```cpp
+void __GameStart__();
+```
 
-## Topic Index
+- called once after engine initialization
+- put your initial `create_instance<...>()` calls here
 
-Use the split manuals for targeted lookup:
+### Objects
 
-- Lifecycle / timing / input / cursor / random seed → `MANUAL_lifecycle.md`
-- Screenshots and debug logging behavior → `MANUAL_debug_helpers.md`
-- ResourceManager and sprite path contract → `MANUAL_resources_sprites.md`
-- Draw API / surfaces / text / sprite structures → `MANUAL_renderer_draw_api.md`
-- Lightweight fragment shader effects → `MANUAL_shaders.md`
-- `__GameStart__`, `__GameTest__`, ScenarioRunner, scenario files, recording → `MANUAL_game_entry.md`
-- Audio → `MANUAL_audio.md`
-- Direct `platform::Window` use → `MANUAL_platform.md`
-- Compatibility notes → `MANUAL_compatibility.md`
+```cpp
+class MyObject : public ObjectGrandBase {
+public:
+    std::type_index __GetTypeIndex__() const override;
+    void __Create__() override;
+    void __Destroy__() override;
+    void __Step__() override;
+    void __Draw__() override;
+};
+```
 
-## Notes
+```cpp
+template <typename T, typename... Args>
+T* create_instance(Args&&... args);
 
-- Gameplay source files under `src/game/*.cpp` are auto-discovered.
-- The template is intended to stay clean: put game startup in `src/game/game_entry.cpp` and tests/scenarios in `src/game/game_test.cpp`.
-- For behavior details that used to be duplicated here, prefer the topic-specific manuals.
+void destroy_instance(ObjectGrandBase* instance);
+void request_game_quit();
+```
+
+### Timing and Window
+
+```cpp
+double delta_time();
+
+void set_vsync_enabled(bool enabled);
+void set_target_fps(int fps);
+
+int window_width();
+int window_height();
+void set_window_size(int width, int height);
+```
+
+### Keyboard and Mouse
+
+```cpp
+bool key_down(int keycode);
+bool key_pressed(int keycode);
+bool key_released(int keycode);
+
+bool mouse_down(int button);
+bool mouse_pressed(int button);
+bool mouse_released(int button);
+
+double mouse_x();
+double mouse_y();
+```
+
+Useful key/button macros are re-exported by `ANGEL.h`, for example:
+- `KEYBOARD_LEFT`
+- `KEYBOARD_RIGHT`
+- `KEYBOARD_SPACE`
+- `KEYBOARD_ESCAPE`
+- `MOUSE_BUTTON_LEFT`
+- `MOUSE_BUTTON_RIGHT`
+
+### Basic Drawing
+
+```cpp
+void draw_rectangle(float x, float y,
+                    float width, float height,
+                    float depth,
+                    Color color = {});
+
+void draw_sprite(float x, float y,
+                 const Sprite& sprite,
+                 int frame,
+                 float depth = 0.0f);
+```
+
+Text drawing is also available through `ANGEL.h`:
+
+```cpp
+void draw_text(const AsciiFont& font, const std::string& text,
+               float x, float y, float depth = 0.0f, ...);
+
+void draw_text(const BitmapFont& font, const std::string& utf8_text,
+               float x, float y, float depth = 0.0f, ...);
+```
+
+### Sprites and Resources
+
+Recommended cached load path:
+
+```cpp
+auto& sprite = engine::utils::ResourceManager::instance().load_sprite("assets/image/player", 0);
+```
+
+Direct load path:
+
+```cpp
+Sprite sprite = load_sprite("assets/image/player", 0);
+```
+
+Notes:
+- always use logical `assets/...` paths
+- sprite paths are specified without the `.png` / `.txt` suffix
+- `texture_group_id` is an integer grouping key; `0` is a fine default for simple projects

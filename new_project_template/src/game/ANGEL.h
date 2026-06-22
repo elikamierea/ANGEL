@@ -307,6 +307,8 @@ using TextureFilter = engine::draw::TextureFilter;
 using Sound = engine::audio::Sound;
 using SurfaceHandle = engine::draw::SurfaceHandle;
 using ShaderHandle = engine::draw::ShaderHandle;
+inline constexpr SurfaceHandle kInvalidSurfaceHandle = engine::draw::kInvalidSurfaceHandle;
+inline constexpr ShaderHandle kInvalidShaderHandle = engine::draw::kInvalidShaderHandle;
 
 using engine::draw::set_default_texture_filter;
 using engine::draw::set_default_sprite_atlas_size;
@@ -318,6 +320,7 @@ using engine::draw::shader_set_uniform_vec2;
 using engine::draw::shader_set_uniform_vec4;
 using engine::draw::surface_create;
 using engine::draw::surface_destroy;
+using engine::draw::surface_flush;
 using engine::draw::surface_set_target;
 using engine::draw::surface_reset_target;
 using engine::draw::surface_clear;
@@ -353,10 +356,8 @@ using engine::audio::get_sfx_volume;
 using engine::audio::set_music_volume;
 using engine::audio::get_music_volume;
 
-using engine::instance::queue_destroy_instance;
 using engine::instance::destroy_instance;
 using engine::instance::create_instance;
-using engine::instance::try_get_instance_set_of_type;
 using engine::instance::instances_of_type;
 using engine::instance::collect_instances_of_type;
 

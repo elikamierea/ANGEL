@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   listFiles: (rootPath) => ipcRenderer.invoke('project:listFiles', rootPath),
   openFileExternally: (filePath) => ipcRenderer.invoke('project:openFile', filePath),
   openFolderExternally: (folderPath) => ipcRenderer.invoke('project:openFolderExternally', folderPath),
+  writeClipboardText: (text) => ipcRenderer.invoke('clipboard:writeText', text),
   renameProjectPath: (payload) => ipcRenderer.invoke('project:renamePath', payload),
   deleteProjectPath: (payload) => ipcRenderer.invoke('project:deletePath', payload),
   saveChatExport: (payload) => ipcRenderer.invoke('project:saveChatExport', payload),
