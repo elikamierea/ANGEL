@@ -334,7 +334,7 @@
   "inspector.bindings.title": "Resource Bindings",
   "inspector.bindings.path": "Path",
   "inspector.bindings.description": "Description",
-  "inspector.action.addBinding": "Add Binding",
+  "inspector.action.addBinding": "Insert Binding",
   "inspector.edgeConnections.title": "Edge Connections",
   "inspector.conflicts.title": "Conflicts",
   "inspector.multiSelect.title": "{count} nodes selected",

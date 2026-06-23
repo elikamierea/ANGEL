@@ -331,7 +331,7 @@
   "inspector.bindings.title": "리소스 바인딩",
   "inspector.bindings.path": "경로",
   "inspector.bindings.description": "설명",
-  "inspector.action.addBinding": "바인딩 추가",
+  "inspector.action.addBinding": "바인딩 삽입",
   "inspector.edgeConnections.title": "엣지 연결",
   "inspector.conflicts.title": "충돌",
   "inspector.multiSelect.title": "{count}개의 노드 선택됨",

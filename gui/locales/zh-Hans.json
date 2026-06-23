@@ -334,7 +334,7 @@
   "inspector.bindings.title": "资源绑定",
   "inspector.bindings.path": "路径",
   "inspector.bindings.description": "描述",
-  "inspector.action.addBinding": "添加绑定",
+  "inspector.action.addBinding": "插入绑定",
   "inspector.edgeConnections.title": "连线连接",
   "inspector.conflicts.title": "冲突",
   "inspector.multiSelect.title": "已选中 {count} 个节点",

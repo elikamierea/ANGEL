@@ -331,7 +331,7 @@
   "inspector.bindings.title": "リソースバインディング",
   "inspector.bindings.path": "パス",
   "inspector.bindings.description": "説明",
-  "inspector.action.addBinding": "バインディングを追加",
+  "inspector.action.addBinding": "バインディングを挿入",
   "inspector.edgeConnections.title": "エッジ接続",
   "inspector.conflicts.title": "競合",
   "inspector.multiSelect.title": "{count} 個のノードを選択中",

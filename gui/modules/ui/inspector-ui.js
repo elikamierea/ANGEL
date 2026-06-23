@@ -46,8 +46,6 @@ export function createInspectorUI(deps) {
     fieldColorIndex,
     fieldExpectedRevision,
     blockBinding,
-    bindingPathField,
-    bindingBlockField,
     includeGuard,
     lockMessage,
   } = dom;
@@ -91,8 +89,6 @@ export function createInspectorUI(deps) {
       if (fieldColorIndex) fieldColorIndex.disabled = false;
       setEditorLocked(false, '');
       blockBinding.innerHTML = '';
-      bindingPathField.value = '';
-      bindingBlockField.value = '';
       if (includeGuard) {
         includeGuard.textContent = t('inspector.bindings.none');
         includeGuard.classList.remove('protected');
@@ -179,12 +175,40 @@ export function createInspectorUI(deps) {
     } else {
       bindings.forEach((binding, index) => {
         const li = document.createElement('li');
-        const descriptionText = binding.description ? binding.description : t('inspector.bindings.noneValue');
-        li.innerHTML = `
-          <div><strong>${t('inspector.bindings.pathInline')}</strong> ${binding.path}</div>
-          <div><strong>${t('inspector.bindings.descriptionInline')}</strong> ${descriptionText}</div>
-          <div class="row"><button type="button" class="binding-remove" data-binding-index="${index}">${t('inspector.action.removeBinding')}</button></div>
-        `;
+        li.className = 'binding-item';
+
+        const pathLabel = document.createElement('label');
+        const pathSpan = document.createElement('span');
+        pathSpan.textContent = t('inspector.bindings.path');
+        const pathInput = document.createElement('input');
+        pathInput.className = 'binding-path-input';
+        pathInput.value = binding.path || '';
+        pathLabel.append(pathSpan, pathInput);
+
+        const descLabel = document.createElement('label');
+        const descSpan = document.createElement('span');
+        descSpan.textContent = t('inspector.bindings.description');
+        const descInput = document.createElement('input');
+        descInput.className = 'binding-description-input';
+        descInput.value = binding.description || '';
+        descLabel.append(descSpan, descInput);
+
+        const removeRow = document.createElement('div');
+        removeRow.className = 'row';
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'binding-remove';
+        removeBtn.dataset.bindingIndex = String(index);
+        removeBtn.textContent = t('inspector.action.removeBinding');
+        removeRow.appendChild(removeBtn);
+
+        const commitField = (field, value) => commitResourceBindingEdit(index, field, value);
+        pathInput.addEventListener('change', () => commitField('path', pathInput.value));
+        pathInput.addEventListener('blur', () => commitField('path', pathInput.value));
+        descInput.addEventListener('change', () => commitField('description', descInput.value));
+        descInput.addEventListener('blur', () => commitField('description', descInput.value));
+
+        li.append(pathLabel, descLabel, removeRow);
         blockBinding.appendChild(li);
       });
     }
@@ -360,38 +384,50 @@ export function createInspectorUI(deps) {
     const selected = getSelectedNode();
     if (!selected) return;
 
-    const path = (bindingPathField.value || '').trim();
-    const description = (bindingBlockField.value || '').trim();
-
-    if (!path) {
-      setStatus(t('inspector.status.addBindingPathRequired'));
-      return;
-    }
-
     const selectedLayerContent = getNodeLayerContent(selected);
     if (!Array.isArray(selectedLayerContent.resourceBindings)) {
       selectedLayerContent.resourceBindings = [];
     }
 
-    const duplicated = selectedLayerContent.resourceBindings.some((entry) => entry.path === path && (entry.description || entry.block || '') === description);
-    if (duplicated) {
-      setStatus(t('inspector.status.addBindingDuplicate'));
-      return;
-    }
-
     pushHistory();
-    selectedLayerContent.resourceBindings.push({ path, description });
+    selectedLayerContent.resourceBindings.push({ path: '', description: '' });
     selected.dirty = true;
     selected.revision += 1;
     fieldExpectedRevision.value = String(selected.revision);
-
-    bindingPathField.value = '';
-    bindingBlockField.value = '';
 
     setStatus(t('inspector.status.bindingAdded', { name: selected.name }));
     updateTopbar();
     rebuildSidebar();
     renderRightPanel();
+    render();
+
+    // Focus the path field of the freshly inserted binding for immediate editing.
+    const items = blockBinding.querySelectorAll('li.binding-item');
+    const lastItem = items[items.length - 1];
+    const firstInput = lastItem ? lastItem.querySelector('.binding-path-input') : null;
+    if (firstInput) firstInput.focus();
+  }
+
+  function commitResourceBindingEdit(index, field, rawValue) {
+    const target = getSelectedNode();
+    if (!target) return;
+    const targetLayerContent = getNodeLayerContent(target);
+    const targetBindings = Array.isArray(targetLayerContent.resourceBindings) ? targetLayerContent.resourceBindings : [];
+    if (!Number.isInteger(index) || index < 0 || index >= targetBindings.length) return;
+    if (field !== 'path' && field !== 'description') return;
+
+    const value = String(rawValue || '').trim();
+    if ((targetBindings[index][field] || '') === value) return;
+
+    pushHistory();
+    targetBindings[index] = { ...targetBindings[index], [field]: value };
+    targetLayerContent.resourceBindings = targetBindings;
+    target.dirty = true;
+    target.revision += 1;
+    fieldExpectedRevision.value = String(target.revision);
+    setStatus(t('inspector.status.nodeAutosaved', { name: target.name }));
+    updateTopbar();
+    rebuildSidebar();
     render();
   }
 

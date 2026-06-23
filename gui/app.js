@@ -343,8 +343,6 @@ const edgeDescriptionField = document.getElementById('edge-description');
 const blockBindingPanel = document.getElementById('block-binding-panel');
 const blockBinding = document.getElementById('block-binding');
 const includeGuard = document.getElementById('include-guard');
-const bindingPathField = document.getElementById('binding-path');
-const bindingBlockField = document.getElementById('binding-block');
 const bindingAddBtn = document.getElementById('binding-add');
 const edgeList = document.getElementById('edge-list');
 const validationList = document.getElementById('validation-list');
@@ -2797,8 +2795,6 @@ const inspectorUI = createInspectorUI({
     fieldColorIndex,
     fieldExpectedRevision,
     blockBinding,
-    bindingPathField,
-    bindingBlockField,
     includeGuard,
     lockMessage,
     saveSelectionBtn,
@@ -3738,15 +3734,6 @@ if (fieldColorIndex) {
   fieldColorIndex.addEventListener('change', applySelectedNodeChanges);
   fieldColorIndex.addEventListener('blur', applySelectedNodeChanges);
 }
-
-[bindingPathField, bindingBlockField].forEach((input) => {
-  input.addEventListener('keydown', (evt) => {
-    if (evt.key === 'Enter') {
-      evt.preventDefault();
-      addResourceBindingFromInspector();
-    }
-  });
-});
 
 const agentChatStateManager = createAgentChatStateManager({
   defaultContextMaxTokens: AGENT_DEFAULT_CONTEXT_MAX_TOKENS,

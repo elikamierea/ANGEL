@@ -331,7 +331,7 @@
   "inspector.bindings.title": "資源繫結",
   "inspector.bindings.path": "路徑",
   "inspector.bindings.description": "描述",
-  "inspector.action.addBinding": "新增繫結",
+  "inspector.action.addBinding": "插入繫結",
   "inspector.edgeConnections.title": "連線連接",
   "inspector.conflicts.title": "衝突",
   "inspector.multiSelect.title": "已選取 {count} 個節點",
