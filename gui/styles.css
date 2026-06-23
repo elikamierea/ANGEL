@@ -345,7 +345,8 @@ body.resizing-left-panel * {
 button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 #block-binding {
-  margin-top: 8px;
+  margin-top: 13px;
+  gap: 11px;
 }
 
 body.dragging-select-none, body.dragging-select-none * {
