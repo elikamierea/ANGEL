@@ -16,6 +16,7 @@ If you need more than the basics in this README:
 - surfaces, render ordering, and shader-backed surface effects -> `MANUAL_render_advanced.md`
 - sound playback, music playback, and audio volume controls -> `MANUAL_audio.md`
 - `__GameTest__(...)`, ScenarioRunner, screenshots, `--scenario`, `--record`, and `--turbo` -> `MANUAL_testing_debug.md`
+- if you want to enable Steam support or prepare a Steam build -> `MANUAL_steam.md`
 
 ## Minimal Game Example
 

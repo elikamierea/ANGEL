@@ -304,6 +304,9 @@ const executeFailModal = document.getElementById('execute-fail-modal');
 const executeFailClose = document.getElementById('execute-fail-close');
 const executeFailMessage = document.getElementById('execute-fail-message');
 const executeFailDetail = document.getElementById('execute-fail-detail');
+const buildToolsModal = document.getElementById('build-tools-modal');
+const buildToolsClose = document.getElementById('build-tools-close');
+const buildToolsRecheck = document.getElementById('build-tools-recheck');
 const saveChangesModal = document.getElementById('save-changes-modal');
 const saveChangesClose = document.getElementById('save-changes-close');
 const saveChangesMessage = document.getElementById('save-changes-message');
@@ -2922,6 +2925,9 @@ const projectIOController = createProjectIOController({
   executeFailClose,
   executeFailMessage,
   executeFailDetail,
+  buildToolsModal,
+  buildToolsClose,
+  buildToolsRecheck,
   onProjectTemplateApplied: (projectTemplate) => {
     agentChatStateManager.resetAgents(projectTemplate?.agents || []);
     renderAgentSidebar();

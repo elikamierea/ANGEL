@@ -761,6 +761,34 @@
       </div>
     </section>
 
+    <section id="build-tools-modal" class="modal hidden" aria-hidden="true" role="dialog" aria-labelledby="build-tools-title">
+      <div class="modal-backdrop" data-close-build-tools="1"></div>
+      <div class="modal-panel">
+        <div class="modal-head">
+          <h3 id="build-tools-title" data-i18n="modal.buildTools.title">C++ build tools required</h3>
+          <button id="build-tools-close" type="button" data-i18n="ui.symbol.close">X</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-note" data-i18n="modal.buildTools.intro">Compiling needs the Microsoft C++ build toolchain, which is not installed on this PC.</p>
+          <p class="modal-note" data-i18n="modal.buildTools.requirement">Install "Build Tools for Visual Studio 2026" with the "Desktop development with C++" workload. (Visual Studio Code alone does not include a compiler.)</p>
+          <p class="modal-note">
+            <span data-i18n="modal.buildTools.pageLabel">Official download page:</span>
+            <span class="build-tools-url">https://visualstudio.microsoft.com/downloads/</span>
+          </p>
+          <ol id="build-tools-steps" class="build-tools-steps">
+            <li data-i18n="modal.buildTools.step1">Open the download page above in your browser.</li>
+            <li data-i18n="modal.buildTools.step2">Scroll down and expand the "Tools for Visual Studio" section.</li>
+            <li data-i18n="modal.buildTools.step3">Download "Build Tools for Visual Studio 2026".</li>
+            <li data-i18n="modal.buildTools.step4">Run the installer, check "Desktop development with C++", then install.</li>
+            <li data-i18n="modal.buildTools.step5">When it finishes, return here and click Re-check.</li>
+          </ol>
+        </div>
+        <div class="modal-actions">
+          <button id="build-tools-recheck" type="button" data-i18n="modal.buildTools.recheck">Re-check</button>
+        </div>
+      </div>
+    </section>
+
     <section id="save-changes-modal" class="modal hidden" aria-hidden="true" role="dialog" aria-labelledby="save-changes-title">
       <div class="modal-backdrop"></div>
       <div class="modal-panel">

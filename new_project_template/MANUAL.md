@@ -13,3 +13,4 @@ Only read the render/testing/platform manuals when you first need those topics.
 4. Advanced rendering and shader effects - `MANUAL_render_advanced.md`
 5. Audio - `MANUAL_audio.md`
 6. Testing and debug - `MANUAL_testing_debug.md`
+7. Optional Steam setup and usage - `MANUAL_steam.md`

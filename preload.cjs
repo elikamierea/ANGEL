@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   toolEdit: (payload) => ipcRenderer.invoke('project:toolEdit', payload),
   runProjectCommand: (payload) => ipcRenderer.invoke('project:runCommand', payload),
   executeProject: (payload) => ipcRenderer.invoke('project:execute', payload),
+  checkBuildTools: () => ipcRenderer.invoke('project:checkBuildTools'),
   loadAgentModelSettings: () => ipcRenderer.invoke('settings:loadAgentModel'),
   saveAgentModelSettings: (payload) => ipcRenderer.invoke('settings:saveAgentModel', payload),
   openAIOAuthAuthorize: (payload) => ipcRenderer.invoke('settings:openAIOAuthAuthorize', payload),

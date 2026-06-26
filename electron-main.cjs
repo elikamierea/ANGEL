@@ -1,11 +1,30 @@
 const { app, BrowserWindow, dialog, ipcMain, shell, clipboard } = require('electron');
 const fs = require('fs/promises');
+const fsSync = require('fs');
 const path = require('path');
 const http = require('http');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 
 const TEMPLATE_DIR = path.join(__dirname, 'new_project_template');
+
+// CMake is shipped inside the app bundle (no-asar, so __dirname is the repo root in dev and
+// resources/app when packaged). buildToolEnv() prepends its bin/ to PATH for build child
+// processes so bare `cmake` calls resolve to the bundled copy; if the bundle is absent we fall
+// back to whatever cmake is on the user's PATH, leaving the prior behavior unchanged.
+const BUNDLED_CMAKE_BIN = path.join(__dirname, 'tools', 'cmake', 'bin');
+
+function buildToolEnv() {
+  const env = { ...process.env };
+  if (fsSync.existsSync(BUNDLED_CMAKE_BIN)) {
+    // Windows env var names are case-insensitive and usually stored as "Path". Mutate the existing
+    // key in place (whatever its casing) instead of adding a second "PATH" key, which would leave
+    // two conflicting entries in the child's environment block.
+    const pathKey = Object.keys(env).find((k) => k.toLowerCase() === 'path') || 'PATH';
+    env[pathKey] = `${BUNDLED_CMAKE_BIN}${path.delimiter}${env[pathKey] || ''}`;
+  }
+  return env;
+}
 const AGENT_SETTINGS_FILE = 'agent-model-settings.json';
 const OPEN_DIALOG_STATE_FILE = 'open-dialog-state.json';
 
@@ -1181,7 +1200,7 @@ ipcMain.handle('project:runCommand', async (_event, payload) => {
     throw new Error(`COMMAND_BLOCKED: ${blockedReason}`);
   }
 
-  const options = { windowsVerbatimArguments: true };
+  const options = { windowsVerbatimArguments: true, env: buildToolEnv() };
   if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
     options.timeoutMs = Math.min(600000, Math.max(1000, Math.trunc(timeoutMs)));
   }
@@ -1196,6 +1215,7 @@ function runChildProcess(command, args, cwd, options = {}) {
       windowsHide: true,
       shell: false,
       windowsVerbatimArguments: Boolean(options.windowsVerbatimArguments),
+      ...(options.env ? { env: options.env } : {}),
     });
 
     let stdout = '';
@@ -1262,16 +1282,43 @@ async function resolveBuildDirectory(rootPath) {
   throw new Error('CMAKE_LISTS_NOT_FOUND');
 }
 
+// Microsoft's official locator (ships at a fixed path with any VS 2017+ install). It finds any
+// edition/version that actually has the C++ toolset component, so it's more reliable than the
+// fixed-path scan below — which only knows the four VS 2022 editions.
+async function detectVcvarsViaVswhere() {
+  const base = process.env['ProgramFiles(x86)'] || process.env.ProgramFiles;
+  if (!base) return null;
+  const vswhere = path.join(base, 'Microsoft Visual Studio', 'Installer', 'vswhere.exe');
+  if (!(await pathExists(vswhere))) return null;
+  const res = await runChildProcess(vswhere, [
+    '-latest', '-products', '*',
+    '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64',
+    '-property', 'installationPath',
+  ], base);
+  if (!res?.ok) return null;
+  const installPath = String(res.stdout || '').trim().split(/\r?\n/)[0].trim();
+  if (!installPath) return null;
+  const vcvars = path.join(installPath, 'VC', 'Auxiliary', 'Build', 'vcvarsall.bat');
+  return (await pathExists(vcvars)) ? vcvars : null;
+}
+
 async function findVcvarsScript() {
+  const viaVswhere = await detectVcvarsViaVswhere();
+  if (viaVswhere) return viaVswhere;
+
+  // Fallback: scan the well-known VS install locations directly (2026 first, then 2022).
   const editions = ['BuildTools', 'Community', 'Professional', 'Enterprise'];
+  const years = ['2026', '2022'];
   const bases = [process.env['ProgramFiles(x86)'], process.env.ProgramFiles].filter(Boolean);
   const candidates = [];
 
   for (const base of bases) {
-    for (const edition of editions) {
-      candidates.push(
-        path.join(base, 'Microsoft Visual Studio', '2022', edition, 'VC', 'Auxiliary', 'Build', 'vcvarsall.bat'),
-      );
+    for (const year of years) {
+      for (const edition of editions) {
+        candidates.push(
+          path.join(base, 'Microsoft Visual Studio', year, edition, 'VC', 'Auxiliary', 'Build', 'vcvarsall.bat'),
+        );
+      }
     }
   }
 
@@ -1282,7 +1329,7 @@ async function findVcvarsScript() {
 }
 
 async function ensureCmakeAvailable(buildDir) {
-  const versionCheck = await runChildProcess('cmake', ['--version'], buildDir);
+  const versionCheck = await runChildProcess('cmake', ['--version'], buildDir, { env: buildToolEnv() });
   if (!versionCheck.ok) {
     throw new Error('cmake.exe not found in PATH. Please install CMake ≥ 3.20 and add it to PATH.');
   }
@@ -1295,7 +1342,7 @@ async function compileWithNinja(buildDir) {
     throw new Error('vcvarsall.bat not found. Please install Visual Studio 2022 Build Tools (Desktop C++).');
   }
   const script = `call "${vcvars}" amd64 && cmake --preset ninja-release && cmake --build --preset build-ninja-release`;
-  return runChildProcess('cmd.exe', ['/d', '/s', '/c', script], buildDir, { windowsVerbatimArguments: true });
+  return runChildProcess('cmd.exe', ['/d', '/s', '/c', script], buildDir, { windowsVerbatimArguments: true, env: buildToolEnv() });
 }
 
 async function findBuiltGameExe(buildDir) {
@@ -1434,6 +1481,18 @@ ipcMain.handle('project:execute', async (_event, payload) => {
   // lands under the project root and build-ninja stays clean. Assets are linked/synced there.
   const runtimeDir = await ensureGameRuntimeDir(rootPath, exePath);
   return runChildProcess(exePath, args, runtimeDir, timeoutMs ? { timeoutMs } : {});
+});
+
+// Pre-compile gate: report whether the MSVC C++ build toolchain (vcvarsall.bat) is present.
+// The renderer calls this right before compile/export and shows a guidance modal when it's
+// missing, instead of letting the build run and fail with a raw error. CMake/Ninja are bundled
+// with the app, so MSVC is the only externally-installed dependency worth gating on here.
+ipcMain.handle('project:checkBuildTools', async () => {
+  const vcvars = await findVcvarsScript();
+  if (vcvars) {
+    return { msvc: { ok: true, vcvars } };
+  }
+  return { msvc: { ok: false, reason: 'vcvarsall.bat not found' } };
 });
 
 app.whenReady().then(() => {

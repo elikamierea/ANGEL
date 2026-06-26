@@ -35,6 +35,9 @@ export function createProjectIOController(deps) {
     executeFailClose,
     executeFailMessage,
     executeFailDetail,
+    buildToolsModal,
+    buildToolsClose,
+    buildToolsRecheck,
     onProjectTemplateApplied,
   } = deps;
 
@@ -673,6 +676,55 @@ export function createProjectIOController(deps) {
     }
   }
 
+  // Official download page for the C++ build toolchain. CMake/Ninja ship with the app, so this is
+  // the one dependency a user may still need to install themselves before compiling. The modal
+  // shows this URL as plain text; this constant is only the fallback-alert copy.
+  const BUILD_TOOLS_URL = 'https://visualstudio.microsoft.com/downloads/';
+  let buildToolsModalBound = false;
+
+  function closeBuildToolsModal() {
+    if (!buildToolsModal) return;
+    buildToolsModal.classList.add('hidden');
+    buildToolsModal.setAttribute('aria-hidden', 'true');
+  }
+
+  function bindBuildToolsModalOnce() {
+    if (buildToolsModalBound) return;
+    buildToolsModalBound = true;
+
+    buildToolsClose?.addEventListener('click', () => closeBuildToolsModal());
+
+    buildToolsModal?.addEventListener('click', (evt) => {
+      const target = evt?.target;
+      if (target && target.dataset && target.dataset.closeBuildTools) {
+        closeBuildToolsModal();
+      }
+    });
+
+    buildToolsRecheck?.addEventListener('click', async () => {
+      if (!electronAPI?.checkBuildTools) return;
+      const prereq = await electronAPI.checkBuildTools().catch(() => null);
+      if (prereq?.msvc?.ok) {
+        closeBuildToolsModal();
+        setStatus('Build tools detected — click Compile to continue.');
+      } else {
+        setStatus('Build tools still not detected. Finish installation, then re-check.');
+      }
+    });
+  }
+
+  function showBuildToolsModal() {
+    if (buildToolsModal) {
+      bindBuildToolsModalOnce();
+      buildToolsModal.classList.remove('hidden');
+      buildToolsModal.setAttribute('aria-hidden', 'false');
+      return;
+    }
+    if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+      window.alert(`Build Tools for Visual Studio 2026 (Desktop development with C++) is required to compile.\nDownload: ${BUILD_TOOLS_URL}`);
+    }
+  }
+
   function isLikelyMissingExecutableFailure(mode, code, stderrText, stdoutText) {
     if (!String(mode || '').startsWith('run')) return false;
     const text = `${stderrText || ''}\n${stdoutText || ''}`;
@@ -691,6 +743,17 @@ export function createProjectIOController(deps) {
     if (!state.projectRootPath) {
       setStatus('Please create/open a project folder first.');
       return;
+    }
+
+    // Gate builds on the MSVC C++ toolchain (the only externally-installed dependency): if it's
+    // missing, show the guidance modal instead of letting the build run and fail with a raw error.
+    // Only compile/export actually invoke cmake+cl; run* modes just launch an already-built exe.
+    if ((mode === 'compile' || mode === 'export-release') && electronAPI?.checkBuildTools) {
+      const prereq = await electronAPI.checkBuildTools().catch(() => null);
+      if (prereq?.msvc && !prereq.msvc.ok) {
+        showBuildToolsModal();
+        return;
+      }
     }
 
     const labelMap = {

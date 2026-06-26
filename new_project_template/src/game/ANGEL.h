@@ -11,6 +11,7 @@
 #include "engine/audio/audio_engine.hpp"
 #include "engine/debug/scenario_runner.hpp"
 #include "engine/general/engine_control.hpp"
+#include "engine/steam/steam_service.hpp"
 
 #ifndef KEYBOARD_SPACE
 #define KEYBOARD_SPACE 32
@@ -412,6 +413,18 @@ using engine::general::set_standard_cursor;
 using engine::general::clear_cursor;
 using engine::general::set_window_size;
 using engine::general::set_window_rect;
+
+using engine::steam::steam_enabled_in_build;
+using engine::steam::steam_available;
+using engine::steam::steam_overlay_active;
+using engine::steam::steam_username;
+using engine::steam::steam_user_id;
+using engine::steam::steam_unlock_achievement;
+using engine::steam::steam_set_stat_int;
+using engine::steam::steam_set_stat_float;
+using engine::steam::steam_store_stats;
+using engine::steam::steam_set_rich_presence;
+using engine::steam::steam_clear_rich_presence;
 
 } // namespace angel_functions
 

@@ -5,6 +5,7 @@
 #include "engine/debug/debug_tools.hpp"
 #include "engine/debug/scenario_runner.hpp"
 #include "engine/draw/draw_api.hpp"
+#include "engine/steam/steam_service.hpp"
 #include "engine/utils/asset_io.hpp"
 #include "platform/window.hpp"
 
@@ -230,6 +231,11 @@ bool Engine::initialize(const std::string& testName, const std::string& scenario
         return false;
     }
 
+    const bool steamAvailable = engine::steam::initialize();
+    if (engine::steam::steam_enabled_in_build() && !steamAvailable) {
+        engine::debug::log_warning("Steam support was compiled in, but Steam initialization was unavailable at runtime.");
+    }
+
     g_activeWindow = &m_window;
     m_window.set_vsync_enabled(g_vsyncEnabled);
     g_prevKeyDown.fill(false);
@@ -290,6 +296,7 @@ void Engine::run() {
         lastFrameStart = frameStart;
 
         m_window.poll_events();
+        engine::steam::run_callbacks();
         engine::debug::scenario().before_frame(frameIndex);
         refresh_input_state();
         record_frame_inputs(frameIndex);
@@ -321,6 +328,7 @@ void Engine::shutdown() {
         return;
     }
 
+    engine::steam::shutdown();
     engine::audio::shutdown();
     engine::draw::renderer_shutdown();
     engine::debug::scenario().reset_runtime_state();

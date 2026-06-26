@@ -888,6 +888,21 @@ body.dragging-agent-chat * {
   padding: 7px 8px;
 }
 .modal-note { margin: 0; font-size: 12px; color: var(--modal-note-text); }
+.build-tools-steps {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--text-main);
+  line-height: 1.55;
+}
+.build-tools-steps li { margin: 2px 0; }
+.build-tools-url {
+  font-family: var(--mono-font, ui-monospace, monospace);
+  font-size: 12px;
+  color: var(--text-main);
+  word-break: break-all;
+  user-select: all;
+}
 .execute-fail-detail {
   margin: 0;
   max-height: 220px;

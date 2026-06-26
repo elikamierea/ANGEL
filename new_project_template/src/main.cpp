@@ -1,10 +1,15 @@
 #include "engine/general/engine_control.hpp"
 #include "engine/debug/debug_tools.hpp"
+#include "engine/steam/steam_service.hpp"
 #include "platform/window.hpp"
 
 #include <string>
 
 int main(int argc, char** argv) {
+    if (engine::steam::steam_restart_app_if_necessary()) {
+        return 0;
+    }
+
     std::string testName;
     std::string scenarioPath;
     bool debugEnabled = false;

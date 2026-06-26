@@ -8,6 +8,10 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(ANGEL_ENABLE_UNITY_BUILD "Enable CMake unity build for faster incremental compiles" ON)
 option(ANGEL_ENABLE_PCH "Enable precompiled headers for engine targets" ON)
 option(ANGEL_ENABLE_SCCACHE "Use sccache compiler launcher when available" ON)
+option(ANGEL_USE_SYSTEM_GLFW "Use an externally installed GLFW instead of the vendored copy" OFF)
+option(ANGEL_ENABLE_STEAM "Enable optional Steamworks integration" OFF)
+set(STEAMWORKS_SDK_ROOT "" CACHE PATH "Path to a local Steamworks SDK root")
+set(ANGEL_STEAM_APP_ID "" CACHE STRING "Steam App ID used for RestartAppIfNecessary and optional local tooling")
 
 if(MSVC)
     add_compile_options(/W4 /permissive- /Zc:__cplusplus /MP)
@@ -33,28 +37,70 @@ endif()
 
 find_package(OpenGL REQUIRED)
 
+set(STEAMWORKS_INCLUDE_DIR "")
+set(STEAMWORKS_LIB "")
+set(STEAMWORKS_DLL "")
+
+if(ANGEL_ENABLE_STEAM)
+    if(STEAMWORKS_SDK_ROOT STREQUAL "")
+        set(STEAMWORKS_SDK_ROOT "${CMAKE_SOURCE_DIR}/local/steamworks/sdk")
+    endif()
+
+    if(NOT WIN32)
+        message(FATAL_ERROR "ANGEL_ENABLE_STEAM currently supports Windows only.")
+    endif()
+
+    if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+        message(FATAL_ERROR "ANGEL_ENABLE_STEAM currently supports Windows x64 only.")
+    endif()
+
+    set(STEAMWORKS_INCLUDE_DIR "${STEAMWORKS_SDK_ROOT}/public")
+    set(STEAMWORKS_HEADER "${STEAMWORKS_INCLUDE_DIR}/steam/steam_api.h")
+    set(STEAMWORKS_LIB "${STEAMWORKS_SDK_ROOT}/redistributable_bin/win64/steam_api64.lib")
+    set(STEAMWORKS_DLL "${STEAMWORKS_SDK_ROOT}/redistributable_bin/win64/steam_api64.dll")
+
+    set(STEAMWORKS_MISSING_PATHS "")
+    foreach(path IN ITEMS "${STEAMWORKS_HEADER}" "${STEAMWORKS_LIB}" "${STEAMWORKS_DLL}")
+        if(NOT EXISTS "${path}")
+            list(APPEND STEAMWORKS_MISSING_PATHS "${path}")
+        endif()
+    endforeach()
+
+    if(STEAMWORKS_MISSING_PATHS)
+        string(JOIN "\n  " STEAMWORKS_MISSING_TEXT ${STEAMWORKS_MISSING_PATHS})
+        message(FATAL_ERROR
+            "ANGEL_ENABLE_STEAM=ON but the Steamworks SDK is incomplete at:\n"
+            "  ${STEAMWORKS_SDK_ROOT}\n"
+            "Missing required files:\n"
+            "  ${STEAMWORKS_MISSING_TEXT}")
+    endif()
+endif()
+
 set(GLFW_LIB_TARGET "")
-find_package(glfw3 3.3 CONFIG QUIET)
-if(glfw3_FOUND)
-    if(TARGET glfw)
-        set(GLFW_LIB_TARGET glfw)
-    elseif(TARGET glfw3::glfw)
-        set(GLFW_LIB_TARGET glfw3::glfw)
+
+if(ANGEL_USE_SYSTEM_GLFW)
+    find_package(glfw3 3.3 CONFIG QUIET)
+    if(glfw3_FOUND)
+        if(TARGET glfw)
+            set(GLFW_LIB_TARGET glfw)
+        elseif(TARGET glfw3::glfw)
+            set(GLFW_LIB_TARGET glfw3::glfw)
+        endif()
     endif()
 endif()
 
 if(NOT GLFW_LIB_TARGET)
-    include(FetchContent)
+    if(NOT EXISTS "${CMAKE_SOURCE_DIR}/vendor/glfw/CMakeLists.txt")
+        message(FATAL_ERROR
+            "Vendored GLFW was not found at vendor/glfw. "
+            "Either restore vendor/glfw or configure with -DANGEL_USE_SYSTEM_GLFW=ON.")
+    endif()
+
     set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
     set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
-    FetchContent_Declare(
-        glfw
-        GIT_REPOSITORY https://github.com/glfw/glfw.git
-        GIT_TAG 3.3.8
-    )
-    FetchContent_MakeAvailable(glfw)
+    add_subdirectory(vendor/glfw EXCLUDE_FROM_ALL)
     set(GLFW_LIB_TARGET glfw)
 endif()
 
@@ -74,6 +120,8 @@ set(ENGINE_CORE_SOURCES
     src/engine/instance/instance_registry.cpp
     src/engine/clock/frame_runner.cpp
     src/engine/general/engine_control.cpp
+    src/engine/steam/steam_service.cpp
+    src/engine/steam/steam_null_backend.cpp
     src/engine/audio/audio_engine.cpp
     src/engine/audio/audio_decode.cpp
     src/engine/audio/audio_backend_miniaudio.cpp
@@ -84,9 +132,22 @@ set(ENGINE_CORE_SOURCES
     src/engine/debug/scenario_runner.cpp
 )
 
+if(ANGEL_ENABLE_STEAM)
+    list(APPEND ENGINE_CORE_SOURCES
+        src/engine/steam/steam_steamworks_backend.cpp
+    )
+endif()
+
 add_library(engine_core STATIC ${ENGINE_CORE_SOURCES})
 target_include_directories(engine_core PUBLIC src vendor)
 target_link_libraries(engine_core PUBLIC winmm)
+if(ANGEL_ENABLE_STEAM)
+    target_include_directories(engine_core PRIVATE "${STEAMWORKS_INCLUDE_DIR}")
+    target_compile_definitions(engine_core PRIVATE ANGEL_STEAM_COMPILED=1)
+    if(NOT ANGEL_STEAM_APP_ID STREQUAL "")
+        target_compile_definitions(engine_core PRIVATE ANGEL_STEAM_APP_ID=${ANGEL_STEAM_APP_ID})
+    endif()
+endif()
 if(ANGEL_ENABLE_UNITY_BUILD)
     # stb_vorbis implementation and audio backend source should not be unity-merged.
     set_target_properties(engine_core PROPERTIES UNITY_BUILD OFF)
@@ -154,6 +215,10 @@ target_link_libraries(angel_engine
         lodepng
 )
 
+if(ANGEL_ENABLE_STEAM)
+    target_link_libraries(angel_engine PRIVATE "${STEAMWORKS_LIB}")
+endif()
+
 set_target_properties(angel_engine PROPERTIES OUTPUT_NAME game)
 
 if(EXISTS "${CMAKE_SOURCE_DIR}/src/assets")
@@ -169,4 +234,12 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/src/assets")
                 -SourceDir "${CMAKE_SOURCE_DIR}/src/assets"
                 -OutPak "$<TARGET_FILE_DIR:angel_engine>/assets.pak"
         COMMENT "Packing assets.pak")
+endif()
+
+if(ANGEL_ENABLE_STEAM)
+    add_custom_command(TARGET angel_engine POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${STEAMWORKS_DLL}"
+                "$<TARGET_FILE_DIR:angel_engine>/steam_api64.dll"
+        COMMENT "Copying steam_api64.dll to runtime output directory")
 endif()

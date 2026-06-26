@@ -32,6 +32,12 @@ const ROOT = __dirname;
       /^\/tsconfig\.json$/,
       /^\/README\.md$/,
       /desktop\.ini$/,
+      // Bundled CMake (tools/cmake) rides along for the build chain; trim the parts the
+      // app never invokes so the portable bundle stays lean (keeps bin/cmake.exe + Modules).
+      /^\/tools\/cmake\/doc($|\/)/,
+      /^\/tools\/cmake\/man($|\/)/,
+      /^\/tools\/cmake\/bin\/cmake-gui\.exe$/,
+      /^\/tools\/cmake\/bin\/ccmake\.exe$/,
     ],
   });
   console.log('Packaged at:', appPaths.join(', '));

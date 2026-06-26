@@ -1,2 +1,4 @@
 build/
 agents/
+local/steamworks/
+steam_appid.txt
