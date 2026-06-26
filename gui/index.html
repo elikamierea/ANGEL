@@ -463,7 +463,14 @@
             <button id="agent-model-openai-oauth-connect" type="button" data-i18n="modal.agentModel.connectOauth">Connect OpenAI OAuth</button>
             <button id="agent-model-openai-oauth-refresh" type="button" data-i18n="modal.agentModel.refreshToken">Refresh Token</button>
           </div>
-          <p id="agent-model-note" class="modal-note"></p>
+          <div class="agent-model-section-gap" aria-hidden="true"></div>
+          <label><span data-i18n="modal.agentModel.maxLoopRounds">Max Loop Rounds</span>
+            <input id="agent-model-max-loop-rounds" type="number" min="1" step="1" data-i18n-placeholder="modal.agentModel.maxLoopRoundsPlaceholder" placeholder="50" />
+          </label>
+          <label><span data-i18n="modal.agentModel.todoLoopMaxRounds">Todo Loop Total Rounds</span>
+            <input id="agent-model-todo-loop-rounds" type="number" min="1" step="1" data-i18n-placeholder="modal.agentModel.todoLoopMaxRoundsPlaceholder" placeholder="100" />
+          </label>
+          <label class="inline-check"><input id="agent-danger-skip-perms-toggle" type="checkbox" /> <span data-i18n="modal.agentModel.dangerouslySkipPermissions">Dangerously skip permissions</span></label>
         </div>
         <div class="modal-actions">
           <button id="agent-model-cancel" type="button" data-i18n="modal.common.cancel">Cancel</button>

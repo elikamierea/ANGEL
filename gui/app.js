@@ -212,6 +212,8 @@ const agentModelReasoningRow = document.getElementById('agent-model-reasoning-ro
 const agentModelReasoning = document.getElementById('agent-model-reasoning');
 const agentModelMaxTokensRow = document.getElementById('agent-model-max-tokens-row');
 const agentModelMaxTokens = document.getElementById('agent-model-max-tokens');
+const agentModelMaxLoopRounds = document.getElementById('agent-model-max-loop-rounds');
+const agentModelTodoLoopRounds = document.getElementById('agent-model-todo-loop-rounds');
 const agentModelImageRow = document.getElementById('agent-model-image-row');
 const agentModelImageName = document.getElementById('agent-model-image-name');
 const agentModelOpenAIKeyRow = document.getElementById('agent-model-openai-key-row');
@@ -222,7 +224,7 @@ const agentModelOpenAIOAuthActions = document.getElementById('agent-model-openai
 const agentModelOpenAIOAuthConnect = document.getElementById('agent-model-openai-oauth-connect');
 const agentModelOpenAIOAuthRefresh = document.getElementById('agent-model-openai-oauth-refresh');
 const agentHumanizeToggle = document.getElementById('agent-humanize-toggle');
-const agentModelNote = document.getElementById('agent-model-note');
+const agentDangerSkipPermsToggle = document.getElementById('agent-danger-skip-perms-toggle');
 const agentModelClose = document.getElementById('agent-model-close');
 const agentModelCancel = document.getElementById('agent-model-cancel');
 const agentModelSave = document.getElementById('agent-model-save');
@@ -346,7 +348,6 @@ const includeGuard = document.getElementById('include-guard');
 const bindingAddBtn = document.getElementById('binding-add');
 const edgeList = document.getElementById('edge-list');
 const validationList = document.getElementById('validation-list');
-const auditList = document.getElementById('audit-list');
 const conflictList = document.getElementById('conflict-list');
 
 const agentChatWindow = document.getElementById('agent-chat-window');
@@ -1042,6 +1043,7 @@ let _handlePointerMoveImpl = () => {};
 let _handlePointerDownImpl = () => {};
 let _handlePointerUpImpl = () => {};
 let _handleCanvasClickImpl = () => {};
+let _handleCanvasDoubleClickImpl = () => {};
 let _handleCanvasWheelImpl = () => {};
 let _handleKeyDownImpl = () => {};
 let _handleKeyUpImpl = () => {};
@@ -1200,6 +1202,7 @@ function handlePointerMove(...args) { return _handlePointerMoveImpl(...args); }
 function handlePointerDown(...args) { return _handlePointerDownImpl(...args); }
 function handlePointerUp(...args) { return _handlePointerUpImpl(...args); }
 function handleCanvasClick(...args) { return _handleCanvasClickImpl(...args); }
+function handleCanvasDoubleClick(...args) { return _handleCanvasDoubleClickImpl(...args); }
 function handleCanvasWheel(...args) { return _handleCanvasWheelImpl(...args); }
 function handleKeyDown(...args) { return _handleKeyDownImpl(...args); }
 function handleKeyUp(...args) { return _handleKeyUpImpl(...args); }
@@ -1603,8 +1606,10 @@ function saveAppFont(locale, family) {
 }
 function applyAppFont(family) {
   const f = String(family || '').trim();
-  if (f) document.body.style.setProperty('--app-font-family', `'${f}', sans-serif`);
-  else document.body.style.removeProperty('--app-font-family');
+  // Set on documentElement (not body) so canvas code can read it via cssVar,
+  // which resolves against document.documentElement. The DOM still inherits it.
+  if (f) document.documentElement.style.setProperty('--app-font-family', `'${f}', sans-serif`);
+  else document.documentElement.style.removeProperty('--app-font-family');
 }
 
 async function listSystemFonts() {
@@ -1761,6 +1766,11 @@ function getReasoningOptionsForModel(providerId, model) {
   return (typeof resolver === 'function' ? resolver(model) : []) || [];
 }
 
+// Per-turn tool-call round cap (the "normal" agent loop limit).
+const DEFAULT_AGENT_MAX_LOOP_ROUNDS = 50;
+// Cumulative tool-call round budget for the whole "run until todos done" loop.
+const DEFAULT_AGENT_TODO_LOOP_MAX_ROUNDS = 100;
+
 function getDefaultAgentModelSettings() {
   const providers = {};
   AGENT_MODEL_CATALOG.forEach((item) => {
@@ -1782,8 +1792,11 @@ function getDefaultAgentModelSettings() {
     defaultModel: 'gpt-4o',
     imageGenerationModel: '',
     humanizeEnabled: false,
+    dangerouslySkipPermissions: false,
     reasoning: {},
     maxOutputTokens: 0,
+    maxLoopRounds: DEFAULT_AGENT_MAX_LOOP_ROUNDS,
+    todoLoopMaxRounds: DEFAULT_AGENT_TODO_LOOP_MAX_ROUNDS,
     providers,
   };
 }
@@ -1822,10 +1835,14 @@ function normalizeAgentModelSettings(parsed) {
     defaultModel: parsed?.defaultModel || defaults.defaultModel,
     imageGenerationModel: String(parsed?.imageGenerationModel || parsed?.imageModel || ''),
     humanizeEnabled: Boolean(parsed?.humanizeEnabled),
+    // Default OFF: absent (legacy) settings keep the command guard enabled (i.e. not skipped).
+    dangerouslySkipPermissions: Boolean(parsed?.dangerouslySkipPermissions),
     reasoning: (parsed?.reasoning && typeof parsed.reasoning === 'object' && !Array.isArray(parsed.reasoning))
       ? { ...parsed.reasoning }
       : {},
     maxOutputTokens: Math.max(0, Math.floor(Number(parsed?.maxOutputTokens) || 0)),
+    maxLoopRounds: Math.max(1, Math.floor(Number(parsed?.maxLoopRounds)) || DEFAULT_AGENT_MAX_LOOP_ROUNDS),
+    todoLoopMaxRounds: Math.max(1, Math.floor(Number(parsed?.todoLoopMaxRounds)) || DEFAULT_AGENT_TODO_LOOP_MAX_ROUNDS),
     providers,
   };
 }
@@ -1848,6 +1865,8 @@ const agentModelSettingsController = createAgentModelSettingsController({
     agentModelReasoning,
     agentModelMaxTokensRow,
     agentModelMaxTokens,
+    agentModelMaxLoopRounds,
+    agentModelTodoLoopRounds,
     agentModelImageRow,
     agentModelImageName,
     agentModelOpenAIKeyRow,
@@ -1858,7 +1877,7 @@ const agentModelSettingsController = createAgentModelSettingsController({
     agentModelOpenAIOAuthConnect,
     agentModelOpenAIOAuthRefresh,
     agentHumanizeToggle,
-    agentModelNote,
+    agentDangerSkipPermsToggle,
     agentModelClose,
     agentModelCancel,
     agentModelSave,
@@ -2488,7 +2507,6 @@ const interactionPointerDown = createInteractionPointerDown({
   pushHistory,
   rebuildSidebar,
   renderRightPanel,
-  getDescendantNodes,
 });
 _handlePointerDownImpl = interactionPointerDown.handlePointerDown;
 
@@ -2533,6 +2551,9 @@ _handlePointerUpImpl = interactionPointerUp.handlePointerUp;
 
 const interactionClickWheel = createInteractionClickWheel({
   state,
+  nodes,
+  edges,
+  getDescendantNodes,
   getCanvasPointer,
   getSelectionBBoxFromSession,
   getRectResizeHandleAt,
@@ -2551,6 +2572,7 @@ const interactionClickWheel = createInteractionClickWheel({
   screenToWorld,
 });
 _handleCanvasClickImpl = interactionClickWheel.handleCanvasClick;
+_handleCanvasDoubleClickImpl = interactionClickWheel.handleCanvasDoubleClick;
 _handleCanvasWheelImpl = interactionClickWheel.handleCanvasWheel;
 
 const interactionKeyboard = createInteractionKeyboard({
@@ -2661,6 +2683,10 @@ const agentToolRuntime = createAgentToolRuntime({
   normalizeToolRelativePath,
   splitLinesKeepSimple,
   refreshProjectFileTree,
+  getCommandGuardEnabled: () => {
+    // Guard is active unless the user has explicitly opted into skipping permissions.
+    try { return loadAgentModelSettings()?.dangerouslySkipPermissions !== true; } catch (_) { return true; }
+  },
 });
 
 async function toolReadByParams(params = {}) {
@@ -2778,7 +2804,6 @@ const inspectorUI = createInspectorUI({
     blockBindingPanel,
     edgeList,
     validationList,
-    auditList,
     edgeIdField,
     edgeRelationField,
     edgeLabelField,
@@ -2972,6 +2997,7 @@ const interactionEventBindings = createInteractionEventBindings({
   handlePointerUp,
   handlePointerMove,
   handleCanvasClick,
+  handleCanvasDoubleClick,
   handleCanvasWheel,
 });
 interactionEventBindings.bind();
@@ -3225,7 +3251,7 @@ function renderLayerQuickSwitch() {
 
 menuOpen.addEventListener('click', async () => { await maybeGuardUnsavedExit(async () => runOpenProject({ skipUnsavedConfirm: true })); });
 menuSave.addEventListener('click', async () => { await runSave({ saveAs: false }); closeAllMenus(); });
-menuSaveAs.addEventListener('click', () => { setStatus('Save As placeholder (not implemented yet)'); closeAllMenus(); });
+menuSaveAs.addEventListener('click', async () => { await runSave({ saveAs: true }); closeAllMenus(); });
 
 [saveChangesClose, saveChangesCancel].forEach((btn) => btn?.addEventListener('click', () => closeSaveChangesModal()));
 

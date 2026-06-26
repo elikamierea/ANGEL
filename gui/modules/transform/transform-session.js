@@ -258,7 +258,6 @@ export function createTransformSessionController(deps) {
       if (!node) continue;
       node.dirty = true;
       node.revision += 1;
-      node.audit.unshift({ actor: 'user', time: new Date().toISOString(), tool: 'context-transform', target: `node:${node.id}` });
       touched.push(node.id);
     }
 

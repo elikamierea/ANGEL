@@ -462,8 +462,11 @@ export function createAssetGeneration(deps) {
 
     const maxPageWidth = 2048;
     const maxPageHeight = 2048;
-    const padX = Math.max(1, Math.round(size * 0.125));
-    const padY = Math.max(1, Math.round(size * 0.125));
+    // Base transparent margin around every glyph. padX may grow below to absorb
+    // horizontal ink overhang; padY stays fixed because the box height already uses
+    // the set-wide max ascent/descent, so no glyph can exceed it vertically.
+    const basePad = Math.max(1, Math.round(size * 0.125));
+    const padY = basePad;
 
     const measureCanvas = document.createElement('canvas');
     measureCanvas.width = 16;
@@ -477,8 +480,21 @@ export function createAssetGeneration(deps) {
       const advance = Math.max(0, Math.ceil(m.width || 0));
       const ascent = Math.max(0, Math.ceil(m.actualBoundingBoxAscent || size * 0.8));
       const descent = Math.max(0, Math.ceil(m.actualBoundingBoxDescent || size * 0.25));
-      return { ch, advance, ascent, descent };
+      // Horizontal ink overhang vs the advance cell: a glyph can ink left of the pen
+      // origin (actualBoundingBoxLeft) or past its advance (actualBoundingBoxRight),
+      // e.g. italics, swashes, 'f'/'W'. Track the worst side so padX can absorb it.
+      const leftOverhang = Math.max(0, Math.ceil(m.actualBoundingBoxLeft || 0));
+      const rightOverhang = Math.max(0, Math.ceil((m.actualBoundingBoxRight || 0) - advance));
+      return { ch, advance, ascent, descent, overhang: Math.max(leftOverhang, rightOverhang) };
     });
+
+    // Grow horizontal padding so even the worst overhanging glyph keeps a >=1px
+    // transparent gap between its ink and the sampled box edge (the draw system can
+    // interpolate up to 1px outside a sprite under scale/rotation, bleeding from
+    // atlas neighbours). padX only grows uniformly, so glyphs are still drawn at
+    // +padX and the exported offsetX stays 0 — no layout/baseline change.
+    const maxOverhang = Math.max(0, ...metricsList.map((m) => m.overhang));
+    const padX = Math.max(basePad, maxOverhang + 1);
 
     const maxAscent = Math.max(1, ...metricsList.map((m) => m.ascent));
     const maxDescent = Math.max(1, ...metricsList.map((m) => m.descent));

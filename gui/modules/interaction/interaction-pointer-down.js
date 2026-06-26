@@ -19,7 +19,6 @@ export function createInteractionPointerDown(deps) {
     pushHistory,
     rebuildSidebar,
     renderRightPanel,
-    getDescendantNodes,
   } = deps;
 
   function handlePointerDown(e) {
@@ -234,11 +233,9 @@ export function createInteractionPointerDown(deps) {
 
     pushHistory();
     const dragRoots = [...state.selectedNodeIds].map((id) => nodes.find((n) => n.id === id)).filter(Boolean);
-    const draggedIds = new Set();
-    for (const root of dragRoots) {
-      draggedIds.add(root.id);
-      for (const d of getDescendantNodes(root.id)) draggedIds.add(d.id);
-    }
+    // Only the explicitly selected nodes move. Contained nodes no longer follow
+    // automatically -- double-click a node to grow the selection (see handleCanvasDoubleClick).
+    const draggedIds = new Set(dragRoots.map((n) => n.id));
     const snapshotById = new Map();
     for (const n of nodes) {
       if (!draggedIds.has(n.id)) continue;

@@ -133,7 +133,6 @@ export function createInteractionPointerUp(deps) {
           parentId: container ? container.id : null,
           childCount: 0,
           validation: [{ level: 'info', message: 'New node created by user.' }],
-          audit: [{ actor: 'user', time: '2026-03-20 03:07', tool: 'N+drag', target: `node:${id}` }],
         };
         pushHistory();
         nodes.push(node);
@@ -344,7 +343,6 @@ export function createInteractionPointerUp(deps) {
             isMirror: true,
             mirrorOfId: source.id,
             validation: [{ level: 'info', message: `Mirror of ${source.name}` }],
-            audit: [{ actor: 'user', time: '2026-03-21 02:31', tool: 'M+drag', target: `node:${id}` }],
           };
           nodes.push(mirrorNode);
 

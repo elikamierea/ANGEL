@@ -101,7 +101,7 @@ export function createAppShellUI(deps) {
     if (!frame) {
       spriteBuildState.previewRect = null;
       ctx2d.fillStyle = cssVar('--sprite-preview-text', '#9fb0c2');
-      ctx2d.font = '14px Arial';
+      ctx2d.font = `14px ${cssVar('--app-font-family', 'Arial, sans-serif')}`;
       ctx2d.fillText(t('modal.sprite.status.noFrameSelected'), 12, 24);
       updateSpriteFrameLabel();
       return;

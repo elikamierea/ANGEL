@@ -201,8 +201,8 @@ export function createAgentModelSettingsController(deps) {
     }
   }
 
-  function refreshAgentModelNote(providerId, method) {
-    if (!dom.agentModelNote || !dom.agentModelOpenAIKey) return;
+  function refreshAgentModelKeyRows(providerId, method) {
+    if (!dom.agentModelOpenAIKey) return;
 
     const openAISelected = providerId === 'openai';
     const methodId = method === 'oauth' ? 'oauth' : 'api_key';
@@ -216,15 +216,6 @@ export function createAgentModelSettingsController(deps) {
     if (dom.agentModelOpenAIOAuthToken) {
       dom.agentModelOpenAIOAuthToken.disabled = !oauthSelected;
     }
-
-    if (providerId === 'openai') {
-      dom.agentModelNote.textContent = oauthSelected
-        ? t('modal.agentModel.note.openaiOauth')
-        : t('modal.agentModel.note.openaiApiKey');
-      return;
-    }
-
-    dom.agentModelNote.textContent = t('modal.agentModel.note.providerApiKey', { providerId });
   }
 
   function openModal() {
@@ -238,6 +229,12 @@ export function createAgentModelSettingsController(deps) {
     renderModelOptions(providerId, method, settings.defaultModel);
     renderReasoningOptions(providerId, dom.agentModelName?.value || settings.defaultModel);
     refreshMaxTokensRow(providerId);
+    if (dom.agentModelMaxLoopRounds) {
+      dom.agentModelMaxLoopRounds.value = String(Math.max(1, Math.floor(Number(settings.maxLoopRounds)) || 50));
+    }
+    if (dom.agentModelTodoLoopRounds) {
+      dom.agentModelTodoLoopRounds.value = String(Math.max(1, Math.floor(Number(settings.todoLoopMaxRounds)) || 100));
+    }
     if (dom.agentModelImageName) {
       dom.agentModelImageName.value = String(settings.imageGenerationModel || '');
     }
@@ -248,7 +245,10 @@ export function createAgentModelSettingsController(deps) {
     if (dom.agentHumanizeToggle) {
       dom.agentHumanizeToggle.checked = Boolean(settings.humanizeEnabled);
     }
-    refreshAgentModelNote(providerId, method);
+    if (dom.agentDangerSkipPermsToggle) {
+      dom.agentDangerSkipPermsToggle.checked = Boolean(settings.dangerouslySkipPermissions);
+    }
+    refreshAgentModelKeyRows(providerId, method);
 
     dom.agentModelModal.classList.remove('hidden');
     dom.agentModelModal.setAttribute('aria-hidden', 'false');
@@ -355,7 +355,7 @@ export function createAgentModelSettingsController(deps) {
         if (dom.agentModelOpenAIOAuthToken) {
           dom.agentModelOpenAIOAuthToken.value = String(current?.providers?.openai?.oauthAccessToken || '');
         }
-        refreshAgentModelNote(providerId, method);
+        refreshAgentModelKeyRows(providerId, method);
       });
     }
 
@@ -366,7 +366,7 @@ export function createAgentModelSettingsController(deps) {
         const selectedModel = dom.agentModelName?.value || '';
         renderModelOptions(providerId, method, selectedModel);
         renderReasoningOptions(providerId, dom.agentModelName?.value || selectedModel);
-        refreshAgentModelNote(providerId, method);
+        refreshAgentModelKeyRows(providerId, method);
       });
     }
 
@@ -466,6 +466,12 @@ export function createAgentModelSettingsController(deps) {
         }
 
         const maxOutputTokens = Math.max(0, Math.floor(Number(dom.agentModelMaxTokens?.value) || 0));
+        const maxLoopRounds = dom.agentModelMaxLoopRounds
+          ? Math.max(1, Math.floor(Number(dom.agentModelMaxLoopRounds.value)) || Number(current.maxLoopRounds) || 50)
+          : Math.max(1, Number(current.maxLoopRounds) || 50);
+        const todoLoopMaxRounds = dom.agentModelTodoLoopRounds
+          ? Math.max(1, Math.floor(Number(dom.agentModelTodoLoopRounds.value)) || Number(current.todoLoopMaxRounds) || 100)
+          : Math.max(1, Number(current.todoLoopMaxRounds) || 100);
 
         const next = {
           ...current,
@@ -474,8 +480,13 @@ export function createAgentModelSettingsController(deps) {
           defaultModel: model,
           imageGenerationModel: String(dom.agentModelImageName?.value || ''),
           humanizeEnabled: Boolean(dom.agentHumanizeToggle?.checked),
+          dangerouslySkipPermissions: dom.agentDangerSkipPermsToggle
+            ? Boolean(dom.agentDangerSkipPermsToggle.checked)
+            : Boolean(current.dangerouslySkipPermissions),
           reasoning: nextReasoning,
           maxOutputTokens,
+          maxLoopRounds,
+          todoLoopMaxRounds,
           providers: nextProviders,
         };
 

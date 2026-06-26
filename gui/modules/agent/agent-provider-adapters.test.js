@@ -123,7 +123,117 @@ test('buildOpenAIResponsesPayload maps user images and function_call/tool_output
   assert.equal(payload.previous_response_id, undefined);
 });
 
+test('buildOpenAIResponsesPayload sets prompt_cache_key only when provided', () => {
+  const withKey = buildOpenAIResponsesPayload({
+    model: 'gpt-test', tools: [], turns: [{ role: 'user', text: 'hi' }], promptCacheKey: 'angel:programmer:gpt-test',
+  });
+  assert.equal(withKey.prompt_cache_key, 'angel:programmer:gpt-test');
+
+  const withoutKey = buildOpenAIResponsesPayload({
+    model: 'gpt-test', tools: [], turns: [{ role: 'user', text: 'hi' }],
+  });
+  assert.equal(withoutKey.prompt_cache_key, undefined);
+});
+
+test('buildOpenAIResponsesPayload (providerId openai) replays encrypted reasoning + message + function_call once and dedupes the function_call turn', () => {
+  const reasoningItem = { type: 'reasoning', id: 'rs_1', encrypted_content: 'enc-abc', summary: [] };
+  const messageItem = { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'answer' }] };
+  const fcItem = { type: 'function_call', call_id: 'c1', name: 'read_file', arguments: '{}' };
+
+  const payload = buildOpenAIResponsesPayload({
+    model: 'gpt-5',
+    tools: [],
+    providerId: 'openai',
+    turns: [
+      { role: 'user', text: 'hi' },
+      { role: 'assistant', text: 'answer', providerId: 'openai', providerMeta: { openai: { responseId: 'resp_1', output: [reasoningItem, messageItem, fcItem] } } },
+      { role: 'function_call', call_id: 'c1', name: 'read_file', arguments: '{}', providerId: 'openai', providerMeta: { openai: { callId: 'c1', responseId: 'resp_1' } } },
+      { role: 'tool_output', call_id: 'c1', output: '{"ok":true}' },
+    ],
+  });
+
+  assert.equal(payload.store, false);
+  assert.deepEqual(payload.include, ['reasoning.encrypted_content']);
+  // reasoning replayed exactly once (as a clone), function_call not duplicated
+  assert.equal(payload.input.filter((i) => i.type === 'reasoning').length, 1);
+  assert.equal(payload.input.filter((i) => i.type === 'function_call').length, 1);
+  assert.equal(payload.input.filter((i) => i.type === 'function_call_output').length, 1);
+  const replayedReasoning = payload.input.find((i) => i.type === 'reasoning');
+  assert.deepEqual(replayedReasoning, reasoningItem);
+  assert.notEqual(replayedReasoning, reasoningItem);
+});
+
+test('buildOpenAIResponsesPayload drops reasoning items lacking encrypted_content (stale/legacy)', () => {
+  const payload = buildOpenAIResponsesPayload({
+    model: 'gpt-5',
+    tools: [],
+    providerId: 'openai',
+    turns: [
+      { role: 'function_call', call_id: 'c1', name: 'x', arguments: '{}', providerId: 'openai', providerMeta: { openai: { responseId: 'resp_x', assistantOutput: [{ type: 'reasoning', id: 'rs', summary: [] }, { type: 'function_call', call_id: 'c1', name: 'x', arguments: '{}' }] } } },
+      { role: 'tool_output', call_id: 'c1', output: '{}' },
+    ],
+  });
+
+  assert.equal(payload.input.filter((i) => i.type === 'reasoning').length, 0);
+  assert.equal(payload.input.filter((i) => i.type === 'function_call').length, 1);
+});
+
+test('buildOpenAIResponsesPayload (providerId xai) does NOT replay reasoning and adds no store/include', () => {
+  const payload = buildOpenAIResponsesPayload({
+    model: 'grok-test',
+    tools: [],
+    providerId: 'xai',
+    turns: [
+      { role: 'function_call', call_id: 'c1', name: 'read_file', arguments: '{"path":"a.txt"}', providerId: 'xai', providerMeta: { xai: { responseId: 'r', output: [{ type: 'reasoning', id: 'rs', encrypted_content: 'e' }] } } },
+      { role: 'tool_output', call_id: 'c1', output: '{"ok":true}' },
+    ],
+  });
+
+  assert.equal(payload.store, undefined);
+  assert.equal(payload.include, undefined);
+  assert.equal(payload.input.filter((i) => i.type === 'reasoning').length, 0);
+  assert.deepEqual(payload.input[0], { type: 'function_call', call_id: 'c1', name: 'read_file', arguments: '{"path":"a.txt"}' });
+});
+
 // --- buildAnthropicMessagesPayload ----------------------------------------
+
+test('buildAnthropicMessagesPayload adds cache_control breakpoints when caching enabled', () => {
+  const payload = buildAnthropicMessagesPayload({
+    model: 'claude-test',
+    enablePromptCaching: true,
+    tools: [
+      { type: 'function', function: { name: 'a', description: '', parameters: { type: 'object', properties: {} } } },
+      { type: 'function', function: { name: 'b', description: '', parameters: { type: 'object', properties: {} } } },
+    ],
+    turns: [
+      { role: 'system', text: 'sys prompt' },
+      { role: 'user', text: 'hi' },
+    ],
+  });
+
+  // system becomes an array block carrying cache_control
+  assert.ok(Array.isArray(payload.system));
+  assert.equal(payload.system[0].text, 'sys prompt');
+  assert.deepEqual(payload.system[0].cache_control, { type: 'ephemeral' });
+  // only the LAST tool carries cache_control
+  assert.equal(payload.tools[0].cache_control, undefined);
+  assert.deepEqual(payload.tools[1].cache_control, { type: 'ephemeral' });
+  // last message's last content block carries cache_control
+  const lastMsg = payload.messages[payload.messages.length - 1];
+  const lastBlock = lastMsg.content[lastMsg.content.length - 1];
+  assert.deepEqual(lastBlock.cache_control, { type: 'ephemeral' });
+});
+
+test('buildAnthropicMessagesPayload keeps system as a plain string when caching disabled', () => {
+  const payload = buildAnthropicMessagesPayload({
+    model: 'claude-test',
+    tools: [{ type: 'function', function: { name: 'a', description: '', parameters: { type: 'object', properties: {} } } }],
+    turns: [{ role: 'system', text: 'sys' }, { role: 'user', text: 'hi' }],
+  });
+  assert.equal(payload.system, 'sys');
+  assert.equal(payload.tools[0].cache_control, undefined);
+  assert.equal(payload.messages[0].content[0].cache_control, undefined);
+});
 
 test('buildAnthropicMessagesPayload concatenates system turns and normalizes tools', () => {
   const payload = buildAnthropicMessagesPayload({
@@ -171,6 +281,85 @@ test('buildAnthropicMessagesPayload maps images, function_call and tool_output t
     role: 'user',
     content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: '{"ok":true}' }],
   });
+});
+
+test('buildAnthropicMessagesPayload replays verbatim thinking+tool_use once for a text+tools round and dedupes the function_call turn', () => {
+  const rawContent = [
+    { type: 'thinking', thinking: 'let me reason', signature: 'sig-abc' },
+    { type: 'text', text: 'answer' },
+    { type: 'tool_use', id: 'toolu_1', name: 'read_file', input: { path: 'a.txt' } },
+  ];
+  const payload = buildAnthropicMessagesPayload({
+    model: 'claude-test',
+    tools: [],
+    turns: [
+      { role: 'user', text: 'hi' },
+      { role: 'assistant', text: 'answer', providerId: 'anthropic', providerMeta: { anthropic: { id: 'msg_1', content: rawContent } } },
+      { role: 'function_call', call_id: 'toolu_1', name: 'read_file', arguments: '{"path":"a.txt"}', providerId: 'anthropic', providerMeta: { anthropic: { toolUseId: 'toolu_1', responseId: 'msg_1' } } },
+      { role: 'tool_output', call_id: 'toolu_1', output: '{"ok":true}' },
+    ],
+  });
+
+  // user, assistant(raw content), tool_result — the function_call turn is folded
+  // into the replayed raw content, not re-emitted.
+  assert.deepEqual(payload.messages.map((m) => m.role), ['user', 'assistant', 'user']);
+  assert.deepEqual(payload.messages[1].content, rawContent);
+  // replay is a clone, not the same reference
+  assert.notEqual(payload.messages[1].content, rawContent);
+  assert.deepEqual(payload.messages[2].content, [{ type: 'tool_result', tool_use_id: 'toolu_1', content: '{"ok":true}' }]);
+});
+
+test('buildAnthropicMessagesPayload replays thinking from a tool-only round carried on the first function_call turn', () => {
+  const rawContent = [
+    { type: 'thinking', thinking: 'reasoning', signature: 'sig-xyz' },
+    { type: 'tool_use', id: 'toolu_2', name: 'search', input: { q: 'x' } },
+  ];
+  const payload = buildAnthropicMessagesPayload({
+    model: 'claude-test',
+    tools: [],
+    turns: [
+      { role: 'user', text: 'go' },
+      { role: 'function_call', call_id: 'toolu_2', name: 'search', arguments: '{"q":"x"}', providerId: 'anthropic', providerMeta: { anthropic: { toolUseId: 'toolu_2', responseId: 'msg_2', assistantContent: rawContent } } },
+      { role: 'tool_output', call_id: 'toolu_2', output: '{"ok":true}' },
+    ],
+  });
+
+  assert.deepEqual(payload.messages.map((m) => m.role), ['user', 'assistant', 'user']);
+  assert.deepEqual(payload.messages[1].content, rawContent);
+  assert.equal(payload.messages[1].content[0].signature, 'sig-xyz');
+});
+
+test('buildAnthropicMessagesPayload falls back to a bare tool_use block for foreign-provider turns', () => {
+  const payload = buildAnthropicMessagesPayload({
+    model: 'claude-test',
+    tools: [],
+    turns: [
+      { role: 'function_call', call_id: 'c1', name: 'read_file', arguments: '{"path":"a.txt"}', providerId: 'openai', providerMeta: { openai: { callId: 'c1' } } },
+      { role: 'tool_output', call_id: 'c1', output: '{"ok":true}' },
+    ],
+  });
+
+  assert.deepEqual(payload.messages[0], {
+    role: 'assistant',
+    content: [{ type: 'tool_use', id: 'c1', name: 'read_file', input: { path: 'a.txt' } }],
+  });
+});
+
+test('buildAnthropicMessagesPayload never attaches cache_control to a trailing thinking block', () => {
+  const payload = buildAnthropicMessagesPayload({
+    model: 'claude-test',
+    enablePromptCaching: true,
+    tools: [],
+    turns: [
+      { role: 'user', text: 'hi' },
+      { role: 'assistant', text: '', providerId: 'anthropic', providerMeta: { anthropic: { id: 'msg_3', content: [{ type: 'text', text: 'hi' }, { type: 'thinking', thinking: 't', signature: 's' }] } } },
+    ],
+  });
+
+  const lastMsg = payload.messages[payload.messages.length - 1];
+  const lastBlock = lastMsg.content[lastMsg.content.length - 1];
+  assert.equal(lastBlock.type, 'thinking');
+  assert.equal(lastBlock.cache_control, undefined);
 });
 
 // --- buildGeminiGenerateContentPayload ------------------------------------
@@ -337,6 +526,27 @@ test('buildCodexResponsesPayload extracts instructions and drops the developer m
   assert.equal(payload.previous_response_id, 'resp_1');
   assert.equal(payload.store, false);
   assert.equal(payload.parallel_tool_calls, false);
+});
+
+test('buildCodexResponsesPayload replays encrypted reasoning from captured codex output, deduped per response', () => {
+  const reasoningItem = { type: 'reasoning', id: 'rs_1', encrypted_content: 'enc', summary: [] };
+  const fcItem = { type: 'function_call', call_id: 'c1', name: 'read_file', arguments: '{}' };
+
+  const payload = buildCodexResponsesPayload({
+    model: 'codex-test',
+    tools: [],
+    turns: [
+      { role: 'system', text: 'be concise' },
+      { role: 'user', text: 'hi' },
+      { role: 'function_call', call_id: 'c1', name: 'read_file', arguments: '{}', providerId: 'openai', providerMeta: { codex: { responseId: 'resp_1', assistantOutput: [reasoningItem, fcItem] } } },
+      { role: 'tool_output', call_id: 'c1', output: '{"ok":true}' },
+    ],
+  });
+
+  assert.equal(payload.input.filter((i) => i.type === 'reasoning').length, 1);
+  assert.equal(payload.input.filter((i) => i.type === 'function_call').length, 1);
+  assert.equal(payload.input.filter((i) => i.type === 'function_call_output').length, 1);
+  assert.deepEqual(payload.input.find((i) => i.type === 'reasoning'), reasoningItem);
 });
 
 test('buildCodexResponsesPayload defaults instructions when no system/developer turn is present', () => {

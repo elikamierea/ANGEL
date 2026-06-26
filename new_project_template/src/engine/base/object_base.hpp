@@ -8,7 +8,7 @@ namespace engine::base {
 
 class ObjectBase : public ObjectGrandBase {
 public:
-    ObjectBase() = default;
+    explicit ObjectBase(bool persistent = false) : ObjectGrandBase(persistent) {}
 
     std::type_index __GetTypeIndex__() const override {
         return typeid(ObjectBase);

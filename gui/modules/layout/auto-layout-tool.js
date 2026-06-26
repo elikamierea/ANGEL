@@ -288,7 +288,6 @@ export function createAutoLayoutTool(deps) {
       node.h = next.h;
       node.dirty = true;
       node.revision += 1;
-      node.audit.unshift({ actor: 'agent', time: new Date().toISOString(), tool: 'auto_layout', target: `node:${node.id}` });
     }
 
     const directedById = new Map(edgePairs.map((e) => [e.id, e]));

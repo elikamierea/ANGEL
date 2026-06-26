@@ -127,7 +127,7 @@ void draw_sprite(float x, float y,const Sprite& sprite, int frame, float depth,
 void draw_sprite(float x, float y, const Sprite& sprite, int frame,
                  float depth,
                  float xscale, float yscale,
-                 float rotationRad, Color color, float alpha) {
+                 float rotationRad, float alpha, Color color) {
     Renderer::instance().submit_sprite(x, y, sprite, frame, depth, xscale, yscale, rotationRad, color, alpha);
 }
 

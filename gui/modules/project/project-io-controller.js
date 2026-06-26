@@ -216,10 +216,57 @@ export function createProjectIOController(deps) {
     return false;
   }
 
+  async function runSaveAs() {
+    if (!electronAPI?.saveProjectAs) {
+      setStatus('Save As is only available in the desktop app.');
+      return;
+    }
+    if (!state.projectRootPath) {
+      setStatus('Save As needs an open project folder. Use New / Open Project first.');
+      return;
+    }
+
+    const serialized = JSON.stringify(getProjectPayload(), null, 2);
+    setStatus('Saving project copy...');
+
+    try {
+      const result = await electronAPI.saveProjectAs({
+        sourceRoot: state.projectRootPath,
+        angelContent: serialized,
+      });
+      // Switch the editor over to the freshly written copy and mark it clean.
+      await applyBackendProject(result);
+      for (const n of nodes) n.dirty = false;
+      updateTopbar();
+
+      const gitInit = result?.gitInit;
+      const gitNote = gitInit?.ok
+        ? ' (Git initialized)'
+        : gitInit?.reason === 'git-unavailable'
+          ? ' (Git not found; repo init skipped)'
+          : gitInit?.attempted
+            ? ' (Git init failed; copy still created)'
+            : '';
+      setStatus(`Saved copy to folder: ${result.rootPath}${gitNote}`);
+    } catch (error) {
+      const message = error?.message || 'unknown error';
+      if (message === 'USER_CANCEL') {
+        setStatus('Save As cancelled');
+      } else if (/TARGET_NOT_EMPTY/.test(message)) {
+        setStatus('Save As failed: target folder is not empty. Pick or create an empty folder.');
+      } else if (/TARGET_INSIDE_SOURCE/.test(message)) {
+        setStatus('Save As failed: cannot save inside the current project folder. Choose a folder outside it.');
+      } else {
+        console.error('Save As failed', error);
+        setStatus(`Save As failed: ${message}`);
+      }
+    }
+  }
+
   async function runSave(options = {}) {
     const saveAs = Boolean(options.saveAs);
     if (saveAs) {
-      setStatus('Save As is not available yet.');
+      await runSaveAs();
       return;
     }
 

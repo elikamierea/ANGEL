@@ -615,6 +615,68 @@ ipcMain.handle('project:save', async (_event, payload) => {
   return true;
 });
 
+// Derived / VCS directories that must NOT ride along into a "Save As" copy:
+// build-ninja/build carry CMake cache + ninja files with hard-coded absolute
+// source/build paths; runtime/dist/out are generated outputs; .git carries the
+// source project's history/remotes. All of these regenerate cleanly in the new
+// location, so the copy stays portable and gets its own fresh git repo.
+const SAVE_AS_EXCLUDED_DIRS = new Set([
+  '.git', '.angel', 'build', 'build-ninja', 'runtime', 'dist', 'out', 'node_modules',
+]);
+
+function isExcludedFromSaveAs(sourceRoot, entryPath) {
+  const rel = path.relative(sourceRoot, entryPath);
+  if (!rel || rel.startsWith('..')) return false;
+  return rel.split(path.sep).some((segment) => SAVE_AS_EXCLUDED_DIRS.has(segment));
+}
+
+ipcMain.handle('project:saveAs', async (_event, payload) => {
+  const sourceRoot = String(payload?.sourceRoot || '').trim();
+  const angelContent = typeof payload?.angelContent === 'string' ? payload.angelContent : '';
+  if (!sourceRoot) throw new Error('MISSING_SOURCE_ROOT');
+  if (!angelContent) throw new Error('MISSING_CONTENT');
+
+  // Pick the destination folder, sharing the project open/create file lineage.
+  const opts = {
+    properties: ['openDirectory', 'createDirectory'],
+    message: 'Select an empty folder for the project copy',
+  };
+  const persisted = await loadOpenDialogState();
+  if (persisted?.defaultPath && typeof persisted.defaultPath === 'string') {
+    opts.defaultPath = persisted.defaultPath;
+  }
+  const targetDialog = await dialog.showOpenDialog(opts);
+  if (targetDialog.canceled || targetDialog.filePaths.length === 0) {
+    throw new Error('USER_CANCEL');
+  }
+  const targetDir = targetDialog.filePaths[0];
+  await saveOpenDialogState({ defaultPath: path.dirname(targetDir) });
+
+  const sourceResolved = path.resolve(sourceRoot);
+  const targetResolved = path.resolve(targetDir);
+  if (targetResolved === sourceResolved || targetResolved.startsWith(sourceResolved + path.sep)) {
+    throw new Error('TARGET_INSIDE_SOURCE');
+  }
+
+  await ensureDirectoryEmpty(targetResolved);
+
+  // Clone the project tree, dropping the derived/VCS dirs above.
+  await fs.cp(sourceResolved, targetResolved, {
+    recursive: true,
+    filter: (src) => !isExcludedFromSaveAs(sourceResolved, src),
+  });
+
+  // Write the current (possibly unsaved) graph as the copy's angel.json.
+  const angelPath = path.join(targetResolved, 'angel.json');
+  await fs.writeFile(angelPath, angelContent, 'utf-8');
+
+  // Fresh repo for the copy, matching New Project behavior.
+  const gitInit = await tryInitGitRepository(targetResolved);
+  const fileTree = await buildFileTree(targetResolved, targetResolved);
+
+  return { rootPath: targetResolved, angelPath, angelContent, fileTree, gitInit };
+});
+
 ipcMain.handle('project:listFiles', async (_event, rootPath) => {
   if (!rootPath) {
     throw new Error('MISSING_ROOT');

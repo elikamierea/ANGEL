@@ -8,7 +8,7 @@ std::set<ObjectGrandBase*> ObjectGrandBase::__IndexAll__;
 std::unordered_map<std::type_index, std::set<ObjectGrandBase*>> ObjectGrandBase::__IndexRegistry__;
 std::vector<ObjectGrandBase*> ObjectGrandBase::__DestroyQueue__;
 
-ObjectGrandBase::ObjectGrandBase() {
+ObjectGrandBase::ObjectGrandBase(bool persistent_) : persistent(persistent_) {
     __IndexAll__.insert(this);
 }
 

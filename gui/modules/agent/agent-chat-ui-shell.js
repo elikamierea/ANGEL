@@ -63,7 +63,6 @@ export function createAgentChatUIShell(deps) {
   const TOOL_PROGRESS_COLLAPSE_MAX_CHARS = 100;
   const TOOL_PROGRESS_COLLAPSE_MAX_LINES = 1;
   const TOOL_PROGRESS_COLLAPSED_WIDTH_PX = 280;
-  const MAX_RUN_UNTIL_DONE_INVOCATIONS = 5;
 
   const toolPreviewModal = document.createElement('div');
   toolPreviewModal.className = 'modal hidden';
@@ -108,7 +107,13 @@ export function createAgentChatUIShell(deps) {
 
   function syncRunUntilDoneButton() {
     if (!agentRunUntilDone) return;
-    agentRunUntilDone.disabled = isAgentRequestInFlight(agentChatState.activeAgentId);
+    const agentId = agentChatState.activeAgentId;
+    const todos = typeof agentChatStateManager.getAgentTodos === 'function'
+      ? agentChatStateManager.getAgentTodos(agentId) : [];
+    // Disable while a request is running, or when there are no todos to run toward
+    // (an empty list gives the loop nothing to do).
+    const hasTodos = Array.isArray(todos) && todos.length > 0;
+    agentRunUntilDone.disabled = isAgentRequestInFlight(agentId) || !hasTodos;
   }
 
   function beginAgentRequest(agentId) {
@@ -294,6 +299,7 @@ export function createAgentChatUIShell(deps) {
       : [];
     agentChatTodos.innerHTML = '';
     agentChatTodos.classList.remove('hidden');
+    syncRunUntilDoneButton();
     if (!Array.isArray(todos) || todos.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'agent-chat-todos-empty';
@@ -519,6 +525,14 @@ export function createAgentChatUIShell(deps) {
   }
 
   function recordAssistantTextChunk(agentId, text, options = {}) {
+    // Display-only chunk (e.g. provider reasoning surfaced as output): render it as
+    // a normal agent bubble, but keep it out of the canonical transcript and out of
+    // model context. The reasoning is already replayed to the model as
+    // reasoning_content on its own turn, so re-adding it here would duplicate it.
+    if (options && options.displayOnly) {
+      pushDelimitedAgentMessages(agentId, text, { ...options, skipCanonical: true, includeInContext: false });
+      return;
+    }
     // Canonical-first assistant text path: append raw model text to canonical before
     // any UI bubble splitting/delimiter rendering happens.
     appendCanonicalAssistantText(agentId, text, options);
@@ -790,33 +804,49 @@ export function createAgentChatUIShell(deps) {
   async function runUntilTodosDone(agentId) {
     if (isAgentRequestInFlight(agentId)) return;
     const requestController = beginAgentRequest(agentId);
-    let outerRound = 0;
+
+    // Caps come from Agent Model settings: per-turn round cap (innerMax) and the
+    // cumulative round budget for the whole loop (totalRoundsCap). The loop is now
+    // bounded by total rounds consumed, not by a fixed number of re-prompts.
+    const settings = (typeof loadAgentModelSettings === 'function' ? loadAgentModelSettings() : null) || {};
+    const innerMax = Math.max(1, Math.floor(Number(settings.maxLoopRounds)) || 50);
+    const totalRoundsCap = Math.max(1, Math.floor(Number(settings.todoLoopMaxRounds)) || 100);
+
+    let totalRounds = 0;
     try {
-      while (outerRound < MAX_RUN_UNTIL_DONE_INVOCATIONS) {
+      while (totalRounds < totalRoundsCap) {
         const todos = typeof agentChatStateManager.getAgentTodos === 'function'
           ? agentChatStateManager.getAgentTodos(agentId) : [];
 
+        // "Pending" = anything still actionable. Blocked items are intentionally
+        // skipped: the loop keeps going on unaffected work and only stops once
+        // every item is either completed or blocked.
+        const pending = todos.filter((i) => i.status !== 'completed' && i.status !== 'blocked');
         const blockedItems = todos.filter((i) => i.status === 'blocked');
-        const allDone = todos.length > 0 && todos.every((i) => i.status === 'completed');
+        const allSettled = todos.length > 0 && pending.length === 0;
 
-        if (blockedItems.length > 0) {
-          const names = blockedItems.map((i) => `"${i.content}"`).join(', ');
-          pushAgentMessage(agentId, 'agent', t('agentChat.runLoop.stoppedBlocked', { items: names }));
+        if (allSettled) {
+          if (blockedItems.length > 0) {
+            const names = blockedItems.map((i) => `"${i.content}"`).join(', ');
+            pushAgentMessage(agentId, 'agent', t('agentChat.runLoop.completedWithBlocked', { items: names }));
+          } else {
+            pushAgentMessage(agentId, 'agent', t('agentChat.runLoop.completed'));
+          }
           break;
         }
-        if (allDone) {
-          pushAgentMessage(agentId, 'agent', t('agentChat.runLoop.completed'));
-          break;
-        }
+        if (todos.length === 0 || pending.length === 0) break;
 
-        outerRound++;
-        const pending = todos.filter((i) => i.status !== 'completed');
-        const continuationText = pending.length > 0
-          ? `Continue the task. Resume where you left off.\nRemaining todos:\n${pending.map((i) => `- [${i.status}] ${i.content}`).join('\n')}`
-          : 'Continue the task. Resume where you left off.';
+        const continuationText = [
+          'Continue the task. Resume where you left off.',
+          'If a task is blocked by an obstacle, mark it and any tasks it blocks as "blocked" via todo_write, then keep working on the other unaffected tasks.',
+          `Remaining todos:\n${pending.map((i) => `- [${i.status}] ${i.content}`).join('\n')}`,
+        ].join('\n');
+
+        const roundsBudget = Math.max(1, Math.min(innerMax, totalRoundsCap - totalRounds));
+        const roundsBefore = totalRounds;
 
         setStatus(t('agentChat.notice.requestInProgress'));
-        setAgentStatus(agentId, t('agentChat.runLoop.runningStatus', { round: outerRound, total: MAX_RUN_UNTIL_DONE_INVOCATIONS }));
+        setAgentStatus(agentId, t('agentChat.runLoop.runningStatus', { round: totalRounds, total: totalRoundsCap }));
         recordUserText(agentId, continuationText);
 
         const reply = await requestDefaultModelCompletion({
@@ -824,6 +854,11 @@ export function createAgentChatUIShell(deps) {
           agentId,
           signal: requestController.signal,
           suppressAggregatedFinalText: true,
+          maxLoopRounds: roundsBudget,
+          onRoundComplete: () => {
+            totalRounds += 1;
+            setAgentStatus(agentId, t('agentChat.runLoop.runningStatus', { round: totalRounds, total: totalRoundsCap }));
+          },
           onProgress: (statusText, usageInfo) => {
             if (String(statusText || '').trim()) {
               setAgentStatus(agentId, resolveVisibleAgentStatus(statusText, 'Replying...'));
@@ -867,10 +902,18 @@ export function createAgentChatUIShell(deps) {
         } else if (String(reply || '').trim()) {
           pushDelimitedAgentMessages(agentId, String(reply || ''));
         }
+
+        // Stall guard: the turn ended without executing a single tool round, so the
+        // model produced a final answer rather than continuing the work. Re-prompting
+        // would just spin without ever consuming the round budget, so stop here.
+        if (totalRounds === roundsBefore) {
+          pushAgentMessage(agentId, 'agent', t('agentChat.runLoop.stalled'));
+          break;
+        }
       }
 
-      if (outerRound >= MAX_RUN_UNTIL_DONE_INVOCATIONS) {
-        pushAgentMessage(agentId, 'agent', t('agentChat.runLoop.limitReached', { limit: MAX_RUN_UNTIL_DONE_INVOCATIONS }));
+      if (totalRounds >= totalRoundsCap) {
+        pushAgentMessage(agentId, 'agent', t('agentChat.runLoop.limitReached', { limit: totalRoundsCap }));
       }
 
       setStatus(t('agentChat.notice.responseReceived'));

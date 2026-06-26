@@ -246,19 +246,19 @@ export function createCanvasRendererPrimitives(deps) {
 
     if (lod === 'name' || lod === 'detail') {
       ctx.fillStyle = palettePick(graphPalette.nodeText, 0, '#e8eef7');
-      ctx.font = `${viewSettings.node_font_px}px Arial`;
+      ctx.font = `${viewSettings.node_font_px + 1}px ${cssVar('--app-font-family', 'Arial, sans-serif')}`;
       ctx.fillText(node.name, p.x + 10, p.y + 18);
     }
 
     if (lod === 'detail') {
       ctx.fillStyle = palettePick(graphPalette.nodeText, 0, '#e8eef7');
-      ctx.font = `${Math.max(10, viewSettings.node_font_px - 1)}px Arial`;
+      ctx.font = `${Math.max(10, viewSettings.node_font_px - 1)}px ${cssVar('--app-font-family', 'Arial, sans-serif')}`;
       const synopsis = (node.synopsis || node.summary || '').trim();
       if (synopsis) {
         const maxW = Math.max(0, w - 20);
         const words = synopsis.split(/\s+/).filter(Boolean);
         let line = '';
-        let y = p.y + 34;
+        let y = p.y + 38;
         let lines = 0;
         for (const word of words) {
           const test = line ? `${line} ${word}` : word;

@@ -17,7 +17,10 @@ void FrameRunner::RunFrame() {
     engine::instance::flush_destroy_queue();
 
     engine::draw::renderer_begin_frame();
-    const std::vector<ObjectGrandBase*> drawSnapshot(ObjectGrandBase::__IndexAll__.begin(), ObjectGrandBase::__IndexAll__.end());
+    std::vector<ObjectGrandBase*> drawSnapshot(ObjectGrandBase::__IndexAll__.begin(), ObjectGrandBase::__IndexAll__.end());
+    std::stable_sort(drawSnapshot.begin(), drawSnapshot.end(), [](const ObjectGrandBase* lhs, const ObjectGrandBase* rhs) {
+        return lhs->depth < rhs->depth;
+    });
     for (auto* instance : drawSnapshot) {
         instance->__Draw__();
     }

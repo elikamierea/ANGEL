@@ -297,6 +297,7 @@ namespace angel_functions {
 
 using ObjectGrandBase = engine::base::ObjectGrandBase;
 using ObjectBase = engine::base::ObjectBase;
+using InstanceHandle = engine::instance::InstanceHandle;
 using Sprite = engine::draw::Sprite;
 using AsciiFont = engine::draw::AsciiFont;
 using BitmapFont = engine::draw::BitmapFont;
@@ -357,9 +358,13 @@ using engine::audio::set_music_volume;
 using engine::audio::get_music_volume;
 
 using engine::instance::destroy_instance;
+using engine::instance::destroy_nonpersistent_instances;
 using engine::instance::create_instance;
 using engine::instance::instances_of_type;
 using engine::instance::collect_instances_of_type;
+using engine::instance::get_handle;
+using engine::instance::instance_exists;
+using engine::instance::get_instance;
 
 using ResourceManager = engine::utils::ResourceManager;
 

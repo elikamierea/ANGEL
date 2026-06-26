@@ -56,6 +56,9 @@ That means:
 - depth is the primary ordering key
 - ties are resolved by earlier submission first
 
+This ordering happens inside the renderer after draw submission.
+Gameplay object `__Draw__()` hooks are ordered earlier by the frame runner using `ObjectGrandBase::depth`, then the submitted render nodes are sorted again by `(depth, submissionOrder)`.
+
 ## Target switching
 
 `surface_set_target(...)` and `surface_reset_target()` do not perform implicit global submission flushes anymore.

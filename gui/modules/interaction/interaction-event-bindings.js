@@ -7,6 +7,7 @@ export function createInteractionEventBindings(deps) {
     handlePointerUp,
     handlePointerMove,
     handleCanvasClick,
+    handleCanvasDoubleClick,
     handleCanvasWheel,
   } = deps;
 
@@ -15,6 +16,7 @@ export function createInteractionEventBindings(deps) {
     window.addEventListener('mouseup', onMouseUp);
     window.addEventListener('mousemove', onMouseMove);
     canvas.addEventListener('click', onClick);
+    canvas.addEventListener('dblclick', onDblClick);
     canvas.addEventListener('wheel', onWheel, { passive: false });
   }
 
@@ -33,6 +35,10 @@ export function createInteractionEventBindings(deps) {
 
   function onClick(e) {
     handleCanvasClick(e);
+  }
+
+  function onDblClick(e) {
+    handleCanvasDoubleClick(e);
   }
 
   function onWheel(e) {

@@ -83,6 +83,31 @@ test('restoreAgentSession (v2) restores canonical turns and derives ui timeline 
   assert.deepEqual(mgr.state.messagesByAgent.a.map((t) => t.role), ['user', 'function_call', 'assistant']);
 });
 
+test('canonical turns preserve nested providerMeta (thinking/reasoning) across save+restore', () => {
+  const mgr = createAgentChatStateManager({ initialAgents: [{ id: 'a' }] });
+  const rawContent = [
+    { type: 'thinking', thinking: 'reasoning', signature: 'sig-abc' },
+    { type: 'tool_use', id: 'toolu_1', name: 'read_file', input: { path: 'a.txt' } },
+  ];
+  mgr.appendCanonicalTurns('a', [
+    { role: 'function_call', call_id: 'toolu_1', name: 'read_file', arguments: '{"path":"a.txt"}', providerId: 'anthropic', providerMeta: { anthropic: { toolUseId: 'toolu_1', responseId: 'msg_1', assistantContent: rawContent } } },
+  ]);
+
+  // "Save": buildCanonicalTurns is what gets serialized into session.json.
+  const saved = mgr.buildCanonicalTurns('a');
+  assert.deepEqual(saved[0].providerMeta.anthropic.assistantContent, rawContent);
+  // It must be a clone, not a shared reference into live state.
+  assert.notEqual(saved[0].providerMeta.anthropic.assistantContent, rawContent);
+
+  // "Reopen": round-trip through JSON then restore into a fresh manager.
+  const payload = JSON.parse(JSON.stringify({ canonical: { turns: saved } }));
+  const fresh = createAgentChatStateManager({ initialAgents: [{ id: 'a' }] });
+  fresh.restoreAgentSession('a', payload);
+  const restored = fresh.buildCanonicalTurns('a');
+  assert.deepEqual(restored[0].providerMeta.anthropic.assistantContent, rawContent);
+  assert.equal(restored[0].providerMeta.anthropic.responseId, 'msg_1');
+});
+
 test('restoreAgentSession (v2) uses explicit ui.timeline when provided', () => {
   const mgr = createAgentChatStateManager({ initialAgents: [{ id: 'a' }] });
   const payload = {

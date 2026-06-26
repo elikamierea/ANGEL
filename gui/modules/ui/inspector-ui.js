@@ -32,7 +32,6 @@ export function createInspectorUI(deps) {
     blockBindingPanel,
     edgeList,
     validationList,
-    auditList,
     edgePathStyleField,
     edgeStrokeStyleField,
     edgeArrowFromField,
@@ -74,7 +73,6 @@ export function createInspectorUI(deps) {
       emptySelection.innerHTML = `<strong>${t('inspector.multiSelect.title', { count: selectedCount })}</strong><p>${t('inspector.multiSelect.body')}</p>`;
       edgeList.innerHTML = '';
       if (validationList) validationList.innerHTML = '';
-      if (auditList) auditList.innerHTML = '';
       edgePathStyleField.value = 'straight';
       edgeStrokeStyleField.value = 'solid';
       edgeDescriptionField.value = '';
@@ -94,7 +92,6 @@ export function createInspectorUI(deps) {
         includeGuard.classList.remove('protected');
       }
       if (validationList) validationList.innerHTML = '';
-      if (auditList) auditList.innerHTML = '';
 
       edgeList.innerHTML = '';
       if (selectedEdge) {
@@ -304,15 +301,6 @@ export function createInspectorUI(deps) {
         validationList.appendChild(li);
       }
     }
-
-    if (auditList) {
-      auditList.innerHTML = '';
-      for (const item of selected.audit) {
-        const li = document.createElement('li');
-        li.textContent = `${item.time} ? ${item.actor} ? ${item.tool} ? ${item.target}`;
-        auditList.appendChild(li);
-      }
-    }
   }
 
   function applyEdgeEditorChanges() {
@@ -491,7 +479,6 @@ export function createInspectorUI(deps) {
     selected.colorIndex = nextColorIndex;
     selected.dirty = true;
     selected.revision += 1;
-    selected.audit.unshift({ actor: 'user', time: '2026-03-19 04:26', tool: 'right-sidebar-save', target: `node:${selected.id}` });
 
     fieldExpectedRevision.value = String(selected.revision);
     setStatus(t('inspector.status.nodeAutosaved', { name: selected.name }));

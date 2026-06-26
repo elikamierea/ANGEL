@@ -610,7 +610,7 @@ void draw_text(const AsciiFont& font,
         }
 
         const int frame = static_cast<int>(ch) - font.firstChar;
-        draw_sprite(cursorX, cursorY, sprite, frame, depth, xscale, yscale, rotationRad, color, alpha);
+        draw_sprite(cursorX, cursorY, sprite, frame, depth, xscale, yscale, rotationRad, alpha, color);
 
         cursorX += glyph_advance(sprite, frame, xscale) + letterSpacing + font.spacing;
     }
@@ -694,8 +694,8 @@ void draw_text(const BitmapFont& font,
                     xscale,
                     yscale,
                     rotationRad,
-                    color,
-                    alpha);
+                    alpha,
+                    color);
 
         const float adv = (g.advance > 0.0f ? g.advance * xscale : defaultAdvance);
         cursorX += adv + letterSpacing + font.spacing;

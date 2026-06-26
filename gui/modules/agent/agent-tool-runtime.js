@@ -11,6 +11,9 @@ export function createAgentToolRuntime(deps) {
     normalizeToolRelativePath,
     splitLinesKeepSimple,
     refreshProjectFileTree,
+    // Returns true when run_command should be guarded by the allowlist/confirm flow.
+    // Defaults to enabled when not supplied so the safety net is opt-out, not opt-in.
+    getCommandGuardEnabled = () => true,
   } = deps;
 
   async function getDirectoryHandleForRelativePath(rootDirHandle, relativePath, create = false) {
@@ -421,6 +424,99 @@ export function createAgentToolRuntime(deps) {
     throw new Error('No opened project folder. Open a project first.');
   }
 
+  // Allowlist of shell programs the agent may run without explicit confirmation.
+  // Matched against the leading program token only (path + .exe/.cmd/.bat/.ps1
+  // suffix stripped, case-insensitive). Anything outside this set — or any command
+  // that uses shell chaining/piping/redirection — triggers the confirm modal.
+  // Kept intentionally narrow: only inspection/read tooling plus the compilers and
+  // ffmpeg the asset pipeline relies on. Interpreters and package managers
+  // (node/npm/npx/python/pip), build drivers (make/ninja/cmake) and `find` are
+  // deliberately excluded — their program name is safe but their arguments can run
+  // arbitrary code (`node -e`, `npm install` postinstall, Makefile rules,
+  // `find -delete`), which a first-token allowlist cannot catch. Those now require
+  // explicit user confirmation.
+  const COMMAND_WHITELIST = new Set([
+    'git', 'ls', 'dir', 'pwd', 'cd', 'echo', 'cat', 'type', 'head', 'tail',
+    'where', 'which', 'tree', 'findstr', 'grep', 'wc',
+    'cl', 'gcc', 'g++', 'clang', 'clang++',
+    'ffmpeg', 'ffprobe',
+  ]);
+
+  // Shell metacharacters let a single string smuggle in extra commands past a
+  // first-token allowlist (e.g. `git status && rm -rf .`), so their presence
+  // alone forces confirmation.
+  const COMMAND_SHELL_METACHARS = /[&|;`]|\$\(|>>|<|>/;
+
+  function isCommandWhitelisted(command) {
+    const cmd = String(command || '').trim();
+    if (!cmd) return false;
+    if (COMMAND_SHELL_METACHARS.test(cmd)) return false;
+    const firstToken = cmd.split(/\s+/)[0].replace(/^["']|["']$/g, '');
+    const base = String(firstToken.split(/[\\/]/).pop() || '')
+      .replace(/\.(exe|cmd|bat|ps1)$/i, '')
+      .toLowerCase();
+    return COMMAND_WHITELIST.has(base);
+  }
+
+  // Lazily built singleton confirm modal reused across calls.
+  let commandConfirmModalEl = null;
+  function ensureCommandConfirmModal() {
+    if (commandConfirmModalEl) return commandConfirmModalEl;
+    const modal = document.createElement('div');
+    modal.className = 'modal hidden';
+    modal.setAttribute('aria-hidden', 'true');
+    modal.innerHTML = `
+      <div class="modal-backdrop"></div>
+      <div class="modal-panel">
+        <div class="modal-head"><h3>Confirm command execution</h3></div>
+        <div class="modal-body">
+          <p class="modal-note">The agent wants to run a command that is not in the allowlist. Review it before allowing it to run.</p>
+          <pre class="command-confirm-text" style="white-space:pre-wrap;word-break:break-all;"></pre>
+        </div>
+        <div class="modal-actions">
+          <button type="button" data-command-confirm-cancel>Cancel</button>
+          <button type="button" data-command-confirm-allow>Run command</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    commandConfirmModalEl = modal;
+    return modal;
+  }
+
+  // Show the confirm modal and resolve true (allow) / false (cancel).
+  function confirmCommandExecution(command) {
+    return new Promise((resolve) => {
+      const modal = ensureCommandConfirmModal();
+      const textEl = modal.querySelector('.command-confirm-text');
+      const allowBtn = modal.querySelector('[data-command-confirm-allow]');
+      const cancelBtn = modal.querySelector('[data-command-confirm-cancel]');
+      const backdrop = modal.querySelector('.modal-backdrop');
+      textEl.textContent = String(command || '');
+
+      const cleanup = (result) => {
+        modal.classList.add('hidden');
+        modal.setAttribute('aria-hidden', 'true');
+        allowBtn.removeEventListener('click', onAllow);
+        cancelBtn.removeEventListener('click', onCancel);
+        backdrop.removeEventListener('click', onCancel);
+        document.removeEventListener('keydown', onKey);
+        resolve(result);
+      };
+      const onAllow = () => cleanup(true);
+      const onCancel = () => cleanup(false);
+      const onKey = (evt) => { if (evt.key === 'Escape') onCancel(); };
+
+      allowBtn.addEventListener('click', onAllow);
+      cancelBtn.addEventListener('click', onCancel);
+      backdrop.addEventListener('click', onCancel);
+      document.addEventListener('keydown', onKey);
+
+      modal.classList.remove('hidden');
+      modal.setAttribute('aria-hidden', 'false');
+      try { allowBtn.focus(); } catch (_) {}
+    });
+  }
+
   // Project command execution is intentionally desktop-only (Electron host path).
   async function runCommandByParams(params = {}) {
     const command = String(params.command || '').trim();
@@ -429,6 +525,25 @@ export function createAgentToolRuntime(deps) {
     const timeoutMs = Number.isFinite(timeoutSeconds) && timeoutSeconds > 0
       ? Math.min(600, Math.max(1, Math.trunc(timeoutSeconds))) * 1000
       : undefined;
+
+    // Allowlist guard: anything outside the allowlist needs explicit user approval.
+    let guardEnabled = true;
+    try { guardEnabled = getCommandGuardEnabled() !== false; } catch (_) { guardEnabled = true; }
+    if (guardEnabled && !isCommandWhitelisted(command)) {
+      const approved = await confirmCommandExecution(command);
+      if (!approved) {
+        return {
+          ok: false,
+          command,
+          cwd: String(state.projectRootPath || ''),
+          code: -1,
+          stdout: '',
+          stderr: 'Command execution was canceled by the user (command is not in the allowlist).',
+          timedOut: false,
+          canceled: true,
+        };
+      }
+    }
 
     if (electronAPI && state.projectRootPath) {
       const res = await electronAPI.runProjectCommand({

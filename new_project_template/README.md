@@ -7,10 +7,10 @@ For normal gameplay code:
 - include `#include "game/ANGEL.h"`
 - create objects by deriving from `ObjectGrandBase`
 
-The goal of this README is only to get you started quickly.
+The goal of this README is to get you started quickly, WITHOUT reading the source code.
 
 If you need more than the basics in this README:
-- normal gameplay lifecycle, objects, instance queries, and frame timing -> `MANUAL_gameplay_core.md`
+- normal gameplay lifecycle, objects, instance queries, handles, and frame timing -> `MANUAL_gameplay_core.md`
 - keyboard, mouse, window, and cursor APIs -> `MANUAL_input_window.md`
 - sprites, primitive drawing, text, and resource-path rules -> `MANUAL_draw_basics.md`
 - surfaces, render ordering, and shader-backed surface effects -> `MANUAL_render_advanced.md`
@@ -56,7 +56,7 @@ void __GameStart__() {
 
 What this shows:
 - `__GameStart__()` is your normal startup hook
-- `create_instance<T>()` creates a live gameplay object and calls its `__Create__()`
+- `T* create_instance<T>()` creates a live gameplay object, calls its `__Create__()` and returns its pointer.
 - `__Step__()` runs once per frame for logic
 - `__Draw__()` runs once per frame for rendering
 - `delta_time()` returns elapsed seconds since the previous frame
@@ -97,7 +97,11 @@ For `load_sprite("assets/image/player", 0)`, the runtime expects:
 - `assets/image/player.png`
 - `assets/image/player.txt`
 
-Use logical `assets/...` paths. Do not pass absolute paths.
+Use logical `assets/...` paths. NEVER pass absolute paths.
+
+The .txt metadata also contains its center point, compatible with scaling/rotating, no need to manually calculate the displacement.
+
+You can always trust the sprites given by the user before first use, as they are given a sprite editor that gurantee correctness on saving. 
 
 ## Common API
 
@@ -178,16 +182,18 @@ Useful key/button macros are re-exported by `ANGEL.h`, for example:
 ### Basic Drawing
 
 ```cpp
-void draw_rectangle(float x, float y,
-                    float width, float height,
-                    float depth,
-                    Color color = {});
+void draw_sprite(float x, float y, const Sprite& sprite, int frame,
+                 float depth,
+                 float xscale, float yscale,
+                 float rotationRad, float alpha);
 
-void draw_sprite(float x, float y,
-                 const Sprite& sprite,
-                 int frame,
-                 float depth = 0.0f);
+void draw_sprite(float x, float y, const Sprite& sprite, int frame,
+                 float depth,
+                 float xscale, float yscale,
+                 float rotationRad, float alpha, Color color);
 ```
+
+**Keep in mind that frame index starts from 0, and that smaller depth means earlier execution.**
 
 Text drawing is also available through `ANGEL.h`:
 

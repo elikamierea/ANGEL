@@ -99,13 +99,13 @@ void draw_sprite(float x, float y, const Sprite& sprite, int frame, float depth 
 // Extended overload (keeps x/y first, consistent with legacy order)
 void draw_sprite(float x, float y, const Sprite& sprite, int frame,
                  float depth,
-                 float xscale = 1.0f, float yscale = 1.0f,
-                 float rotationRad = 0.0f, float alpha = 1.0f);
+                 float xscale, float yscale,
+                 float rotationRad, float alpha);
 
 void draw_sprite(float x, float y, const Sprite& sprite, int frame,
                  float depth,
                  float xscale, float yscale,
-                 float rotationRad, Color color, float alpha = 1.0f);
+                 float rotationRad, float alpha, Color color);
 
 void draw_line(float x1, float y1,
                float x2, float y2,

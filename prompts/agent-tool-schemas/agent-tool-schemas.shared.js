@@ -552,7 +552,7 @@ export const SHARED_AGENT_TOOL_SCHEMAS = [
   {
     type: 'function',
     name: 'todo_write',
-    description: 'Replace the current task-tracking todo list with the given items. Use this to plan multi-step work and keep progress visible. Each call replaces the entire list, so always pass the full set of items, not just changed ones. Use status "blocked" when an item cannot proceed without external input or resolution.',
+    description: 'Replace the current task-tracking todo list with the given items. Use this to plan multi-step work and keep progress visible. Each call replaces the entire list, so always pass the full set of items, not just changed ones. Use status "blocked" when an item cannot proceed without external input or resolution. When a task hits an obstacle, mark that task — and any tasks that depend on it — as "blocked", then continue working on the other, unaffected tasks instead of stopping.',
     parameters: {
       type: 'object',
       properties: {

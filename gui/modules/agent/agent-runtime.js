@@ -44,13 +44,13 @@ import {
 // ---------------------------------------------------------------------------
 // Hard cap on tool-execution rounds within a single agent turn, guarding
 // against runaway tool-call loops (stuck models, perpetually-failing tools).
-export const MAX_AGENT_LOOP_ROUNDS = 25;
+export const MAX_AGENT_LOOP_ROUNDS = 50;
 export const AUTO_COMPACT_THRESHOLD = 0.80;
 export const MIN_ROUNDS_BETWEEN_COMPACTS = 3;
 
 // If the todo list is non-empty and hasn't been touched (via todo_write) for
 // this many rounds, remind the model to revisit it.
-export const TODO_REMINDER_STALE_ROUNDS = 5;
+export const TODO_REMINDER_STALE_ROUNDS = 10;
 
 // Once the upcoming round is this close to MAX_AGENT_LOOP_ROUNDS, remind the
 // model that the loop is about to be cut off.
@@ -71,15 +71,18 @@ export function shouldTriggerAutoCompact(usageInfo, round, lastAutoCompactRound)
 // Builds an ephemeral reminder turn's text (or '' if no reminder is due) from
 // the current pending todos and loop counters. Pure function so it can be
 // unit-tested directly.
-export function buildLoopReminderText(pendingTodos, roundsSinceTodoTouch, nextRound) {
+export function buildLoopReminderText(pendingTodos, roundsSinceTodoTouch, nextRound, maxLoopRounds = MAX_AGENT_LOOP_ROUNDS) {
   const parts = [];
   if (Array.isArray(pendingTodos) && pendingTodos.length > 0 && roundsSinceTodoTouch >= TODO_REMINDER_STALE_ROUNDS) {
     const list = pendingTodos.map((item) => `- [${item.status}] ${item.content}`).join('\n');
     parts.push(`[Reminder] Your todo list hasn't been updated in ${roundsSinceTodoTouch} rounds and still has unfinished items:\n${list}\nIf they're still relevant, keep working on them or call todo_write to update their status.`);
   }
-  if (nextRound >= TODO_REMINDER_APPROACHING_ROUNDS) {
-    const remaining = Math.max(0, MAX_AGENT_LOOP_ROUNDS - nextRound);
-    parts.push(`[Reminder] This agent loop stops after ${MAX_AGENT_LOOP_ROUNDS} tool-call rounds (${remaining} round(s) left). Wrap up or summarize progress soon.`);
+  // The "approaching the limit" warning fires within the last 5 rounds of whatever
+  // the (now configurable) per-turn cap is.
+  const approachingThreshold = Math.max(1, maxLoopRounds - 5);
+  if (nextRound >= approachingThreshold) {
+    const remaining = Math.max(0, maxLoopRounds - nextRound);
+    parts.push(`[Reminder] This agent loop stops after ${maxLoopRounds} tool-call rounds (${remaining} round(s) left). Wrap up or summarize progress soon.`);
   }
   return parts.join('\n\n');
 }
@@ -389,6 +392,14 @@ export function createAgentRuntime(deps) {
     }
 
     const model = settings.defaultModel || 'gpt-4o';
+    // Per-turn tool-call round cap. A caller-supplied params.maxLoopRounds wins
+    // (the "run until todos done" loop passes its remaining total-round budget so a
+    // single turn never overshoots the overall cap); otherwise fall back to the
+    // user-configured setting, then the built-in default.
+    const settingsMaxLoopRounds = Math.max(1, Math.floor(Number(settings.maxLoopRounds)) || MAX_AGENT_LOOP_ROUNDS);
+    const maxLoopRounds = (Number.isFinite(Number(params?.maxLoopRounds)) && Number(params.maxLoopRounds) > 0)
+      ? Math.max(1, Math.floor(Number(params.maxLoopRounds)))
+      : settingsMaxLoopRounds;
     // Provider-native reasoning fragment for this model, chosen in settings and
     // deep-merged into the request as-is (no runtime mapping). null = send nothing.
     const reasoningFragment = (settings.reasoning && typeof settings.reasoning === 'object')
@@ -400,6 +411,13 @@ export function createAgentRuntime(deps) {
     const anthropicMaxTokens = configuredMaxTokens > 0 ? configuredMaxTokens : 4096;
     const isMoonshotThinkingModel = providerId === 'moonshot'
       && model.startsWith('kimi-k2.');
+    // Stable routing hint for OpenAI's prompt cache (Responses + Codex). Keeping it
+    // constant per agent+model across rounds pins identical prefixes to the same
+    // cache shard. Only OpenAI honors prompt_cache_key; leave null for xAI (shares
+    // the Responses payload builder but may reject unknown fields) and others.
+    const promptCacheKey = providerId === 'openai'
+      ? `angel:${String(agentId || 'agent')}:${model}`
+      : null;
     const agentTools = (typeof getAgentToolSchemas === 'function')
       ? getAgentToolSchemas(params?.agentId)
       : [];
@@ -450,9 +468,14 @@ export function createAgentRuntime(deps) {
       }
       if (providerSpec.kind === 'anthropic') {
         const u = resp?.usage || {};
-        const cachedInput = (Math.max(0, Number(u.cache_read_input_tokens) || 0)) +
-          (Math.max(0, Number(u.cache_creation_input_tokens) || 0));
-        const input = Math.max(0, Number(u.input_tokens) || 0);
+        // Only cache_read is an actual (cheap) cache hit. cache_creation is the
+        // input we just WROTE to the cache this request — billed at a premium, not
+        // a hit — so it counts as fresh input, not as "cached". input_tokens is the
+        // remaining uncached portion. (Anthropic splits the prompt across all three;
+        // none of them overlap.)
+        const cachedInput = Math.max(0, Number(u.cache_read_input_tokens) || 0);
+        const input = Math.max(0, Number(u.input_tokens) || 0)
+          + Math.max(0, Number(u.cache_creation_input_tokens) || 0);
         const output = Math.max(0, Number(u.output_tokens) || 0);
         return { cachedInput, input, output };
       }
@@ -466,8 +489,12 @@ export function createAgentRuntime(deps) {
 
     const makeUsageInfo = (resp) => {
       const breakdown = extractTokenBreakdown(resp);
+      // Total prompt size = cached (read) + everything else. Deriving `used` from
+      // the breakdown keeps it correct across providers: for Anthropic input_tokens
+      // alone excludes the cache fields (so it would under-report once caching kicks
+      // in), and Gemini reports promptTokenCount, not usage.input_tokens.
       return {
-        used: Number(resp?.usage?.input_tokens || resp?.usage?.prompt_tokens || 0),
+        used: Math.max(0, breakdown.cachedInput + breakdown.input),
         max: getContextLimitByModel(model),
         ...breakdown,
       };
@@ -497,7 +524,7 @@ export function createAgentRuntime(deps) {
         }, bearerToken, {}, { signal: requestSignal });
       }
       if (providerSpec.kind === 'anthropic') {
-        const payload = buildProviderPayload({ model, tools: responseTools, turns, maxTokens: anthropicMaxTokens });
+        const payload = buildProviderPayload({ model, tools: responseTools, turns, maxTokens: anthropicMaxTokens, enablePromptCaching: true });
         if (reasoningFragment) deepMergeInto(payload, reasoningFragment);
         return requestResponses(payload, bearerToken, { signal: requestSignal });
       }
@@ -506,7 +533,10 @@ export function createAgentRuntime(deps) {
         if (reasoningFragment) deepMergeInto(payload, reasoningFragment);
         return requestResponses(payload, model, bearerToken, { signal: requestSignal });
       }
-      const payload = buildProviderPayload({ model, tools: responseTools, turns, previousResponseId });
+      // providerId lets the OpenAI Responses builder scope encrypted-reasoning
+      // replay to OpenAI only (the same builder also serves xAI). The Codex builder
+      // ignores it (always OpenAI-oauth).
+      const payload = buildProviderPayload({ model, tools: responseTools, turns, previousResponseId, promptCacheKey, providerId });
       if (reasoningFragment) deepMergeInto(payload, reasoningFragment);
       return requestResponses(payload, bearerToken, { signal: requestSignal });
     };
@@ -542,6 +572,26 @@ export function createAgentRuntime(deps) {
         providerMeta: responseProviderMeta,
         canonicalToolCalls: [],
       };
+
+      // Surface provider-native reasoning (Moonshot/Kimi reasoning_content,
+      // Anthropic thinking, ...) as ordinary streamed output so tool-only turns
+      // aren't silent. Marked displayOnly: the same reasoning is already replayed
+      // to the model as reasoning_content on its own turn, so this visible copy
+      // must NOT re-enter the model context (the UI keeps it out of the canonical
+      // transcript and history). It is not added to collectedText for the same
+      // reason, and so the aggregated final answer stays reasoning-free.
+      if (reasoningText && typeof params?.onModelText === 'function') {
+        try {
+          params.onModelText(reasoningText, {
+            reasoningText: '',
+            providerId,
+            providerModel: model,
+            providerMeta: responseProviderMeta,
+            displayOnly: true,
+          });
+        } catch (_) {}
+      }
+
       const textParts = extractTextFromModelResponse(responseJson);
       if (textParts.length > 0) {
         collectedText.push(...textParts);
@@ -576,17 +626,51 @@ export function createAgentRuntime(deps) {
           ? extractGeminiToolCallsFromModelResponse(responseJson)
           : extractToolCallsFromModelResponse(responseJson));
       if (toolCalls.length === 0) {
+        // Why did the turn end? Chat APIs report this as choices[].finish_reason
+        // ('stop' = normal, 'length' = truncated, 'tool_calls' = wants tools);
+        // Anthropic uses stop_reason. Nothing else in the loop inspects it, so a
+        // truncated or empty turn is otherwise indistinguishable from a clean
+        // finish — which is exactly the "it stopped halfway / no final answer"
+        // mystery. Surface it as a visible (display-only) note so it isn't silent.
+        const firstChoice = Array.isArray(responseJson?.choices) ? responseJson.choices[0] : null;
+        const finishReason = (firstChoice && typeof firstChoice.finish_reason === 'string')
+          ? firstChoice.finish_reason
+          : (typeof responseJson?.stop_reason === 'string' ? responseJson.stop_reason : '');
+        const emitNote = (note) => {
+          if (typeof params?.onModelText !== 'function') return;
+          try {
+            params.onModelText(note, {
+              reasoningText: '',
+              providerId,
+              providerModel: model,
+              providerMeta: responseProviderMeta,
+              displayOnly: true,
+            });
+          } catch (_) {}
+        };
+
+        // Truncation can hit even when some text was produced, leaving a partial
+        // answer — flag it regardless of whether there is collected text.
+        if (finishReason === 'length' || finishReason === 'max_tokens') {
+          emitNote('[⚠ The model response was cut off (finish_reason=length) before it finished — the output/thinking token budget was likely exhausted, so the answer may be incomplete.]');
+        }
+
         if (collectedText.length > 0) {
           if (params?.suppressAggregatedFinalText && emittedModelTextCount > 0) {
             return finalize('');
           }
           return finalize(collectedText.join('\n\n'));
         }
+
+        // No tool call and nothing displayable: the turn produced no answer at all.
+        if (finishReason !== 'length' && finishReason !== 'max_tokens') {
+          emitNote(`[The model ended the turn without a final answer or tool call${finishReason ? ` (finish_reason=${finishReason})` : ''}.]`);
+        }
         return finalize('');
       }
 
-      if (round >= MAX_AGENT_LOOP_ROUNDS) {
-        const limitNote = `[Agent loop stopped after reaching the maximum of ${MAX_AGENT_LOOP_ROUNDS} tool-call rounds.]`;
+      if (round >= maxLoopRounds) {
+        const limitNote = `[Agent loop stopped after reaching the maximum of ${maxLoopRounds} tool-call rounds.]`;
         collectedText.push(limitNote);
         if (typeof params?.onModelText === 'function') {
           try {
@@ -605,12 +689,20 @@ export function createAgentRuntime(deps) {
         return finalize(collectedText.join('\n\n'));
       }
 
-      for (const call of toolCalls) {
+      // The provider's raw assistant content for this round (Anthropic thinking
+      // blocks with signatures, OpenAI reasoning items) lives in
+      // responseProviderMeta. It is attached to the assistant TEXT turn when the
+      // round produced text; for a tool-only round no text turn exists, so embed it
+      // on the first function_call turn instead. Every function_call turn carries
+      // the response id so the payload builder can dedupe replayed content.
+      const hadAssistantText = textParts.length > 0;
+      toolCalls.forEach((call, callIdx) => {
         notify(summarizeToolCall(call), usageInfo);
         if (typeof params?.onToolCall === 'function') {
-          try { params.onToolCall(turnAdapter.functionCallTurn(call, reasoningText)); } catch (_) {}
+          const embedRawContent = !hadAssistantText && callIdx === 0;
+          try { params.onToolCall(turnAdapter.functionCallTurn(call, reasoningText, responseProviderMeta, embedRawContent)); } catch (_) {}
         }
-      }
+      });
       const toolRuns = [];
       for (const call of toolCalls) {
         const run = await runAgentToolCall(call, { agentId });
@@ -655,7 +747,7 @@ export function createAgentRuntime(deps) {
       const followupTurns = await buildLatestAgentCanonicalConversation(agentId);
       const pendingTodos = (typeof getAgentTodos === 'function' ? getAgentTodos(agentId) : [])
         .filter((item) => item?.status !== 'completed' && item?.status !== 'blocked');
-      const reminderText = buildLoopReminderText(pendingTodos, roundsSinceTodoTouch, round + 1);
+      const reminderText = buildLoopReminderText(pendingTodos, roundsSinceTodoTouch, round + 1, maxLoopRounds);
       if (reminderText) {
         followupTurns.push({ role: 'system', text: reminderText, images: [] });
       }
@@ -665,6 +757,11 @@ export function createAgentRuntime(deps) {
       });
 
       round += 1;
+      // Report each completed tool-call round so a higher-level loop (run until
+      // todos done) can enforce a cumulative round budget across turns.
+      if (typeof params?.onRoundComplete === 'function') {
+        try { params.onRoundComplete(round); } catch (_) {}
+      }
     }
   }
 

@@ -86,9 +86,11 @@ void sprite_atlas_set_texture_filter(const Sprite& sprite, TextureFilter filter)
 ```
 
 Notes:
-- `set_default_texture_filter(...)` affects textures created after the call
+- `set_default_texture_filter(...)` affects textures created after the call. The initial default is Linear.
 - `sprite_atlas_set_texture_filter(...)` changes the existing atlas texture for that sprite
 - because sprites share atlases, changing one sprite's atlas filter can affect other sprites packed into the same atlas
+
+If the visual effect of Linear filter is too blurry, try Nearest.
 
 ## Sprite drawing
 
@@ -99,13 +101,13 @@ void draw_sprite(float x, float y, const Sprite& sprite, int frame, float depth 
 
 void draw_sprite(float x, float y, const Sprite& sprite, int frame,
                  float depth,
-                 float xscale = 1.0f, float yscale = 1.0f,
-                 float rotationRad = 0.0f, float alpha = 1.0f);
+                 float xscale, float yscale,
+                 float rotationRad, float alpha);
 
 void draw_sprite(float x, float y, const Sprite& sprite, int frame,
                  float depth,
                  float xscale, float yscale,
-                 float rotationRad, Color color, float alpha = 1.0f);
+                 float rotationRad, float alpha, Color color);
 ```
 
 Preferred mental model:
@@ -122,6 +124,8 @@ Transform semantics:
   - rotation in radians
 - `alpha`
   - multiplied with sprite alpha
+
+Frame index starts from 0.
 
 Out-of-range frame indices are ignored safely.
 

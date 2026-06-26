@@ -109,6 +109,25 @@ export function normalizeCallIds(turns) {
   });
 }
 
+// Converts a captured Responses `output` array back into valid `input` items for
+// replay. Keeps reasoning (only when it carries encrypted_content — required with
+// store:false; stale items from before encryption was requested are dropped),
+// assistant messages, and function_call items; ignores everything else.
+function openAIOutputToInputItems(output) {
+  if (!Array.isArray(output)) return [];
+  const items = [];
+  for (const item of output) {
+    const type = String(item?.type || '');
+    if (type === 'reasoning') {
+      if (!item?.encrypted_content) continue;
+      items.push(cloneJson(item));
+    } else if (type === 'message' || type === 'function_call') {
+      items.push(cloneJson(item));
+    }
+  }
+  return items;
+}
+
 function canonicalTurnToOpenAIInput(turn) {
   if (!turn) return null;
   if (turn.role === 'function_call') {
@@ -149,17 +168,51 @@ function canonicalTurnToOpenAIInput(turn) {
   };
 }
 
-export function buildOpenAIResponsesPayload({ model, tools, turns, previousResponseId = null }) {
+export function buildOpenAIResponsesPayload({ model, tools, turns, previousResponseId = null, promptCacheKey = null, providerId = '' }) {
+  // Only the OpenAI Responses path replays encrypted reasoning. xAI shares this
+  // builder but rejects store/include and has different reasoning semantics, so it
+  // keeps the generic mapping (no regression).
+  const replayReasoning = providerId === 'openai';
+  const emittedResponseIds = new Set();
   const input = [];
   for (const turn of (Array.isArray(turns) ? turns : [])) {
     if (!turn) continue;
+
+    if (replayReasoning && turn.providerId === 'openai'
+        && (turn.role === 'assistant' || turn.role === 'function_call')) {
+      const bucket = turn.providerMeta?.openai;
+      const responseId = String(bucket?.responseId || '');
+      // Already replayed as part of an earlier turn from the same response.
+      if (responseId && emittedResponseIds.has(responseId)) continue;
+      const rawOutput = turn.role === 'assistant' ? bucket?.output : bucket?.assistantOutput;
+      const items = openAIOutputToInputItems(rawOutput);
+      if (items.length > 0) {
+        input.push(...items);
+        if (responseId) emittedResponseIds.add(responseId);
+        continue;
+      }
+      // No raw output captured (e.g. legacy session) -> fall through to generic.
+    }
+
     const mapped = canonicalTurnToOpenAIInput(turn);
     if (Array.isArray(mapped)) input.push(...mapped.filter(Boolean));
     else if (mapped) input.push(mapped);
   }
 
   const payload = { model, tools, input };
+  if (replayReasoning) {
+    // Stateless replay: don't rely on server-side response state, and ask for the
+    // encrypted reasoning so it can be passed back on the next round.
+    payload.store = false;
+    payload.include = ['reasoning.encrypted_content'];
+  }
   if (previousResponseId) payload.previous_response_id = previousResponseId;
+  // Pin OpenAI's (best-effort, per-backend-node) prompt cache to a stable key so
+  // identical prefixes across rounds keep landing on the same cache shard instead
+  // of intermittently routing to a cold node (the "cached_tokens suddenly drops to
+  // 0 then recovers" symptom). Only set when provided.
+  const cacheKey = String(promptCacheKey || '').trim();
+  if (cacheKey) payload.prompt_cache_key = cacheKey;
   return payload;
 }
 
@@ -199,10 +252,25 @@ function canonicalTurnToAnthropicUserContent(turn) {
   return blocks;
 }
 
-export function buildAnthropicMessagesPayload({ model, tools, turns, maxTokens = 4096 }) {
+export function buildAnthropicMessagesPayload({ model, tools, turns, maxTokens = 4096, enablePromptCaching = false }) {
   const sourceTurns = Array.isArray(turns) ? turns : [];
   let system = '';
   const messages = [];
+
+  // Anthropic REQUIRES the original signed thinking blocks to be replayed in the
+  // assistant turn that carries tool_use whenever extended/adaptive thinking is
+  // enabled — stripping them returns a 400. The verbatim assistant content
+  // (thinking + text + tool_use blocks) is captured in providerMeta.anthropic at
+  // response time; replay it once per response, then skip the per-turn fallback for
+  // the assistant text / function_call turns that belong to the same response.
+  const emittedAnthropicResponses = new Set();
+  const tryEmitAnthropicRawContent = (rawContent, responseId) => {
+    if (!Array.isArray(rawContent) || rawContent.length === 0) return false;
+    if (responseId && emittedAnthropicResponses.has(responseId)) return true;
+    messages.push({ role: 'assistant', content: cloneJson(rawContent) });
+    if (responseId) emittedAnthropicResponses.add(responseId);
+    return true;
+  };
 
   for (const turn of sourceTurns) {
     if (!turn) continue;
@@ -219,6 +287,8 @@ export function buildAnthropicMessagesPayload({ model, tools, turns, maxTokens =
     }
 
     if (turn.role === 'assistant') {
+      const meta = turn.providerId === 'anthropic' ? turn.providerMeta?.anthropic : null;
+      if (tryEmitAnthropicRawContent(meta?.content, String(meta?.id || ''))) continue;
       messages.push({
         role: 'assistant',
         content: [{ type: 'text', text: String(turn.text || '') }],
@@ -227,6 +297,16 @@ export function buildAnthropicMessagesPayload({ model, tools, turns, maxTokens =
     }
 
     if (turn.role === 'function_call') {
+      const meta = turn.providerId === 'anthropic' ? turn.providerMeta?.anthropic : null;
+      const responseId = String(meta?.responseId || '');
+      // Covered by raw content already emitted for this response (e.g. the
+      // assistant text turn, or an earlier tool_use from the same round).
+      if (responseId && emittedAnthropicResponses.has(responseId)) continue;
+      // Tool-only round: the raw assistant content (thinking + tool_use) rides on
+      // the first function_call turn.
+      if (tryEmitAnthropicRawContent(meta?.assistantContent, responseId)) continue;
+      // Fallback: foreign-provider turn, or a session saved before raw content was
+      // captured. Reconstruct a bare tool_use block (no thinking to replay).
       messages.push({
         role: 'assistant',
         content: [{
@@ -262,12 +342,46 @@ export function buildAnthropicMessagesPayload({ model, tools, turns, maxTokens =
     max_tokens: maxTokens,
     messages,
   };
-  if (system) payload.system = system;
+
+  // Anthropic only writes/reads its prompt cache where an explicit cache_control
+  // breakpoint is present — with none, every request is a full cache miss
+  // (cache_creation/cache_read both 0). Place ephemeral breakpoints on the big
+  // static prefix (tools -> system, in Anthropic's cache hierarchy order) and on
+  // the tail of the conversation so the growing history is cached incrementally.
+  // Anthropic auto-matches the longest previously-written breakpoint (~20 back),
+  // so moving the tail breakpoint each round still reuses prior writes. Max 4
+  // breakpoints; we use at most 3.
+  const ephemeral = { type: 'ephemeral' };
+
+  if (system) {
+    payload.system = enablePromptCaching
+      ? [{ type: 'text', text: system, cache_control: ephemeral }]
+      : system;
+  }
 
   const normalizedTools = (Array.isArray(tools) ? tools : [])
     .map(normalizeAnthropicTool)
     .filter(Boolean);
-  if (normalizedTools.length > 0) payload.tools = normalizedTools;
+  if (normalizedTools.length > 0) {
+    if (enablePromptCaching) {
+      const lastTool = normalizedTools[normalizedTools.length - 1];
+      normalizedTools[normalizedTools.length - 1] = { ...lastTool, cache_control: ephemeral };
+    }
+    payload.tools = normalizedTools;
+  }
+
+  if (enablePromptCaching && messages.length > 0) {
+    const lastMessage = messages[messages.length - 1];
+    if (Array.isArray(lastMessage.content) && lastMessage.content.length > 0) {
+      const lastBlock = lastMessage.content[lastMessage.content.length - 1];
+      const blockType = String(lastBlock?.type || '');
+      // cache_control is rejected on thinking blocks, so never attach it there.
+      if (lastBlock && typeof lastBlock === 'object'
+          && blockType !== 'thinking' && blockType !== 'redacted_thinking') {
+        lastBlock.cache_control = ephemeral;
+      }
+    }
+  }
 
   return payload;
 }
@@ -470,16 +584,34 @@ function canonicalTurnToCodexInput(turn) {
   };
 }
 
-export function buildCodexResponsesPayload({ model, tools, turns, previousResponseId = null }) {
-  const base = buildOpenAIResponsesPayload({ model, tools, turns, previousResponseId });
+export function buildCodexResponsesPayload({ model, tools, turns, previousResponseId = null, promptCacheKey = null }) {
+  const base = buildOpenAIResponsesPayload({ model, tools, turns, previousResponseId, promptCacheKey });
   const openAIInput = Array.isArray(base.input) ? base.input : [];
   const systemBlock = openAIInput.find((item) => item?.role === 'developer' || item?.role === 'system');
   const instructions = extractInputText(systemBlock);
 
-  const codexInput = (Array.isArray(turns) ? turns : [])
-    .map(canonicalTurnToCodexInput)
-    .filter(Boolean)
-    .filter((item) => item.type !== 'message' || item.role !== 'developer');
+  // Replay captured reasoning (encrypted_content) + message/function_call items
+  // verbatim, deduped per response, so Codex keeps its chain-of-thought across
+  // tool calls. Falls back to the generic 1:1 mapping for turns without raw output.
+  const emittedResponseIds = new Set();
+  const codexInput = [];
+  for (const turn of (Array.isArray(turns) ? turns : [])) {
+    if (!turn) continue;
+    if (turn.providerId === 'openai' && (turn.role === 'assistant' || turn.role === 'function_call')) {
+      const bucket = turn.providerMeta?.codex;
+      const responseId = String(bucket?.responseId || '');
+      if (responseId && emittedResponseIds.has(responseId)) continue;
+      const rawOutput = turn.role === 'assistant' ? bucket?.output : bucket?.assistantOutput;
+      const items = openAIOutputToInputItems(rawOutput);
+      if (items.length > 0) {
+        codexInput.push(...items);
+        if (responseId) emittedResponseIds.add(responseId);
+        continue;
+      }
+    }
+    const mapped = canonicalTurnToCodexInput(turn);
+    if (mapped && (mapped.type !== 'message' || mapped.role !== 'developer')) codexInput.push(mapped);
+  }
 
   const payload = {
     model,
@@ -495,6 +627,8 @@ export function buildCodexResponsesPayload({ model, tools, turns, previousRespon
   };
 
   if (previousResponseId) payload.previous_response_id = previousResponseId;
+  const cacheKey = String(promptCacheKey || '').trim();
+  if (cacheKey) payload.prompt_cache_key = cacheKey;
 
   return payload;
 }
@@ -592,7 +726,12 @@ export function createProviderCanonicalAdapter({ providerId, providerKind, metho
     return usage ? { [providerId]: { usage } } : null;
   }
 
-  function functionCallTurn(call, reasoningText = '') {
+  // responseMeta is metaFromResponse() for the round that produced this call.
+  // When embedRawContent is true (tool-only round, first call) the verbatim
+  // assistant content/output — including thinking/reasoning blocks — is stored so
+  // the payload builder can replay it. The response id is always recorded (when
+  // present) so the builder can dedupe content shared across the round's turns.
+  function functionCallTurn(call, reasoningText = '', responseMeta = null, embedRawContent = false) {
     return {
       role: 'function_call',
       call_id: call?.id || '',
@@ -603,15 +742,19 @@ export function createProviderCanonicalAdapter({ providerId, providerKind, metho
       providerModel: model,
       providerMeta: (() => {
         if (providerKind === 'anthropic') {
-          return {
-            anthropic: {
-              toolUseId: call?.id || '',
-              toolName: call?.name || '',
-              input: (() => {
-                try { return JSON.parse(call?.argumentsText || '{}'); } catch (_) { return {}; }
-              })(),
-            },
+          const anthropic = {
+            toolUseId: call?.id || '',
+            toolName: call?.name || '',
+            input: (() => {
+              try { return JSON.parse(call?.argumentsText || '{}'); } catch (_) { return {}; }
+            })(),
           };
+          const responseId = String(responseMeta?.anthropic?.id || '');
+          if (responseId) anthropic.responseId = responseId;
+          if (embedRawContent && Array.isArray(responseMeta?.anthropic?.content)) {
+            anthropic.assistantContent = cloneJson(responseMeta.anthropic.content);
+          }
+          return { anthropic };
         }
         if (providerKind === 'gemini') {
           return {
@@ -627,13 +770,18 @@ export function createProviderCanonicalAdapter({ providerId, providerKind, metho
           };
         }
         const bucket = providerId === 'openai' && method === 'oauth' ? 'codex' : providerId;
-        return {
-          [bucket]: {
-            callId: call?.id || '',
-            toolName: call?.name || '',
-            arguments: call?.argumentsText || '{}',
-          },
+        const bucketMeta = responseMeta && typeof responseMeta === 'object' ? responseMeta[bucket] : null;
+        const entry = {
+          callId: call?.id || '',
+          toolName: call?.name || '',
+          arguments: call?.argumentsText || '{}',
         };
+        const responseId = String(bucketMeta?.responseId || '');
+        if (responseId) entry.responseId = responseId;
+        if (embedRawContent && Array.isArray(bucketMeta?.output)) {
+          entry.assistantOutput = cloneJson(bucketMeta.output);
+        }
+        return { [bucket]: entry };
       })(),
     };
   }

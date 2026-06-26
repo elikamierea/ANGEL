@@ -11,7 +11,7 @@ public:
     static std::vector<ObjectGrandBase*> __DestroyQueue__;
 
 public:
-    ObjectGrandBase();
+    explicit ObjectGrandBase(bool persistent = false);
     virtual ~ObjectGrandBase();
 
     ObjectGrandBase(const ObjectGrandBase&) = delete;
@@ -26,6 +26,9 @@ public:
     virtual void __Draw__() {}
 
 public:
+    std::uint32_t __InstanceSlot__{static_cast<std::uint32_t>(-1)};
+    std::uint32_t __InstanceGeneration__{0};
+    bool persistent{false};
     float depth{0.0f};
 };
 

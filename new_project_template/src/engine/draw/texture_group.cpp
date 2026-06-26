@@ -15,6 +15,8 @@
 namespace engine::draw {
 namespace {
 
+constexpr int kSpriteAtlasExtrusionPadding = 2;
+
 std::string normalize_slashes(std::string s) {
     std::replace(s.begin(), s.end(), '\\', '/');
     return s;
@@ -82,6 +84,46 @@ ImageData load_image_rgba(const std::string& logicalPath) {
     data.pixels.assign(buffer, buffer + (width * height * 4));
     std::free(buffer);
     return data;
+}
+
+std::size_t rgba_pixel_offset(int x, int y, int width) {
+    return static_cast<std::size_t>((y * width + x) * 4);
+}
+
+ImageData build_extruded_sprite_sheet(const ImageData& image,
+                                      int frameCount,
+                                      int frameWidth,
+                                      int frameHeight) {
+    const int paddedFrameWidth = frameWidth + kSpriteAtlasExtrusionPadding * 2;
+    const int paddedFrameHeight = frameHeight + kSpriteAtlasExtrusionPadding * 2;
+
+    ImageData expanded;
+    expanded.width = frameCount * paddedFrameWidth;
+    expanded.height = paddedFrameHeight;
+    expanded.pixels.resize(static_cast<std::size_t>(expanded.width * expanded.height * 4));
+
+    // Extrude each frame independently so linear filtering never samples a neighboring frame.
+    for (int frameIndex = 0; frameIndex < frameCount; ++frameIndex) {
+        const int srcFrameX = frameIndex * frameWidth;
+        const int dstFrameX = frameIndex * paddedFrameWidth;
+
+        for (int y = 0; y < paddedFrameHeight; ++y) {
+            const int srcY = std::clamp(y - kSpriteAtlasExtrusionPadding, 0, frameHeight - 1);
+            for (int x = 0; x < paddedFrameWidth; ++x) {
+                const int srcX = srcFrameX + std::clamp(x - kSpriteAtlasExtrusionPadding, 0, frameWidth - 1);
+                const int dstX = dstFrameX + x;
+
+                const std::size_t srcOffset = rgba_pixel_offset(srcX, srcY, image.width);
+                const std::size_t dstOffset = rgba_pixel_offset(dstX, y, expanded.width);
+                expanded.pixels[dstOffset + 0] = image.pixels[srcOffset + 0];
+                expanded.pixels[dstOffset + 1] = image.pixels[srcOffset + 1];
+                expanded.pixels[dstOffset + 2] = image.pixels[srcOffset + 2];
+                expanded.pixels[dstOffset + 3] = image.pixels[srcOffset + 3];
+            }
+        }
+    }
+
+    return expanded;
 }
 
 } // namespace
@@ -231,9 +273,11 @@ Sprite TextureGroupManager::upload_sprite(TextureGroupManager::TextureGroup& gro
     sprite.textureHandle = atlas->glTextureID;
     sprite.frames.reserve(static_cast<std::size_t>(frameCount));
 
+    const int paddedFrameWidth = frameWidth + kSpriteAtlasExtrusionPadding * 2;
+    const int frameOffsetY = allocation.y + kSpriteAtlasExtrusionPadding;
+
     for (int frameIndex = 0; frameIndex < frameCount; ++frameIndex) {
-        int frameOffsetX = allocation.x + frameIndex * frameWidth;
-        int frameOffsetY = allocation.y;
+        int frameOffsetX = allocation.x + frameIndex * paddedFrameWidth + kSpriteAtlasExtrusionPadding;
 
         Frame frame{};
         frame.u0 = static_cast<float>(frameOffsetX) / static_cast<float>(atlas->width);
@@ -263,13 +307,15 @@ Sprite TextureGroupManager::load_sprite(const std::string& file_location, int te
         throw std::runtime_error("Sprite metadata exceeds image bounds: " + pngPath);
     }
 
+    ImageData expandedImage = build_extruded_sprite_sheet(image, meta.frameCount, meta.frameWidth, meta.frameHeight);
+
     auto& group = acquire_group(textureGroupID);
-    Allocation allocation = allocate_region(group, image.width, image.height);
+    Allocation allocation = allocate_region(group, expandedImage.width, expandedImage.height);
     return upload_sprite(group,
                          allocation,
-                         image.pixels,
-                         image.width,
-                         image.height,
+                         expandedImage.pixels,
+                         expandedImage.width,
+                         expandedImage.height,
                          meta.pivotX,
                          meta.pivotY,
                          meta.frameCount,

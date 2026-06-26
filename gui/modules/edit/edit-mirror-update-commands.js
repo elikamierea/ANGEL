@@ -109,7 +109,6 @@ export function createEditMirrorUpdateCommands(deps) {
       isMirror: true,
       mirrorOfId: source.id,
       validation: [{ level: 'info', message: `Mirror of ${source.name}` }],
-      audit: [{ actor: 'agent', time: new Date().toISOString(), tool: 'create_mirror', target: `node:${id}` }],
     };
     // Bindings are per-layer; attach them to the layer the mirror is created in.
     mirrorNode.layerContent[layerId].resourceBindings = resourceBindings;
@@ -216,7 +215,6 @@ export function createEditMirrorUpdateCommands(deps) {
     node.status = status;
     node.dirty = true;
     node.revision += 1;
-    node.audit.unshift({ actor: 'agent', time: new Date().toISOString(), tool: 'update_node', target: `node:${node.id}` });
 
     recomputeAllContainmentFromGeometry();
     const layerOrderConflict = validateContainmentLayerOrder();

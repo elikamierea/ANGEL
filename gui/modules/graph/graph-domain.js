@@ -97,6 +97,11 @@ export function createGraphDomain(deps) {
       ensureNodeLayerFields(n);
       n.synopsis = String(n.synopsis || n.summary || n.layerContent?.[state.activeLayer]?.synopsis || '');
 
+      // Legacy cleanup: the per-node audit trail was write-only (never surfaced
+      // in the UI) and is removed. Drop it from any older project that still has it
+      // so it stops round-tripping into newly saved angel.json files.
+      if ('audit' in n) delete n.audit;
+
       // Legacy migration: bindings used to live node-global (n.resourceBindings,
       // or even older n.blockBinding). Bindings are now per-layer, so move any
       // legacy bindings into the layer the node was created in. Runs once: the

@@ -190,7 +190,6 @@ export function createEditArrangeCommands(deps) {
       node.h = next.h;
       node.dirty = true;
       node.revision += 1;
-      node.audit.unshift({ actor: 'agent', time: new Date().toISOString(), tool: 'arrange_nodes_grid', target: `node:${node.id}` });
       touchedIds.push(node.id);
     }
 
