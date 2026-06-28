@@ -28,4 +28,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveAgentModelSettings: (payload) => ipcRenderer.invoke('settings:saveAgentModel', payload),
   openAIOAuthAuthorize: (payload) => ipcRenderer.invoke('settings:openAIOAuthAuthorize', payload),
   refreshOpenAIOAuthToken: (payload) => ipcRenderer.invoke('settings:refreshOpenAIOAuthToken', payload),
+  listProviderModels: (payload) => ipcRenderer.invoke('settings:listProviderModels', payload),
 });

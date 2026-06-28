@@ -17,17 +17,89 @@ export function createAgentModelSettingsController(deps) {
 
   let settingsCache = getDefaultSettings();
 
+  // Live model lists fetched from each provider, merged on top of the static
+  // catalog. Keyed by `${providerId}:${methodId}`; a populated entry short-circuits
+  // further fetches (and prevents the render -> fetch -> render loop). inFlight
+  // dedupes concurrent fetches; the seq guard drops responses for a provider the
+  // user has already switched away from.
+  const dynamicModelsCache = new Map();
+  const inFlightModelFetches = new Set();
+  let dynamicFetchSeq = 0;
+
+  function methodKey(method) {
+    return method === 'oauth' ? 'oauth' : 'api_key';
+  }
+
   function getProviderCatalog(providerId) {
     return catalog.find((item) => item.providerId === providerId) || catalog[0];
   }
 
-  function getMethodModelList(providerId, method) {
+  function getStaticMethodModelList(providerId, method) {
     const provider = getProviderCatalog(providerId);
-    const methodId = method === 'oauth' ? 'oauth' : 'api_key';
+    const methodId = methodKey(method);
     const byMethod = provider?.methodModels?.[methodId];
     if (Array.isArray(byMethod) && byMethod.length > 0) return byMethod;
     if (Array.isArray(provider?.models) && provider.models.length > 0) return provider.models;
     return [];
+  }
+
+  // Static catalog first (keeps the curated ordering / recommended models on top),
+  // then any provider-reported models not already listed, deduped.
+  function getMethodModelList(providerId, method) {
+    const staticModels = getStaticMethodModelList(providerId, method);
+    const dynamicModels = dynamicModelsCache.get(`${providerId}:${methodKey(method)}`) || [];
+    const seen = new Set();
+    const merged = [];
+    for (const model of [...staticModels, ...dynamicModels]) {
+      const id = String(model || '').trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      merged.push(id);
+    }
+    return merged;
+  }
+
+  function getProviderApiKey(providerId) {
+    const fromInput = String(dom.agentModelOpenAIKey?.value || '').trim();
+    if (fromInput) return fromInput;
+    return String(loadSettings()?.providers?.[providerId]?.apiKey || '').trim();
+  }
+
+  // Fetches the provider's live model list (via main, to dodge CORS) and merges it
+  // into the dropdown. No-ops when there's no key, no IPC bridge, or the list is
+  // already cached. On failure the static catalog stays as-is (silent fallback).
+  async function refreshDynamicModels(providerId, method, selectedModel) {
+    if (!electronAPI?.listProviderModels) return;
+    const methodId = methodKey(method);
+    const cacheKey = `${providerId}:${methodId}`;
+    if (dynamicModelsCache.has(cacheKey) || inFlightModelFetches.has(cacheKey)) return;
+
+    const apiKey = getProviderApiKey(providerId);
+    if (!apiKey) return;
+
+    inFlightModelFetches.add(cacheKey);
+    const seq = ++dynamicFetchSeq;
+    try {
+      const result = await electronAPI.listProviderModels({ providerId, method: methodId, apiKey });
+      const models = Array.isArray(result?.models)
+        ? result.models.map((m) => String(m || '').trim()).filter(Boolean)
+        : [];
+      if (!result?.ok || models.length === 0) return;
+      dynamicModelsCache.set(cacheKey, models);
+
+      // Only re-render if the dialog is still showing this provider+method and no
+      // newer fetch has superseded this one.
+      const stillCurrent = seq === dynamicFetchSeq
+        && dom.agentModelProvider?.value === providerId
+        && methodKey(dom.agentModelMethod?.value) === methodId;
+      if (stillCurrent) {
+        renderModelOptions(providerId, method, dom.agentModelName?.value || selectedModel);
+      }
+    } catch (_) {
+      // Keep the static fallback silently.
+    } finally {
+      inFlightModelFetches.delete(cacheKey);
+    }
   }
 
   // Only OpenAI (api_key) exposes the built-in image-generation tool, so the
@@ -154,6 +226,10 @@ export function createAgentModelSettingsController(deps) {
         dom.agentModelImageName.value = '';
       }
     }
+
+    // Kick off the live-model fetch in the background. Cached results short-circuit
+    // inside refreshDynamicModels, so this won't loop when it re-renders.
+    void refreshDynamicModels(providerId, method, selectedModel);
   }
 
   function fragmentKey(fragment) {
@@ -374,6 +450,17 @@ export function createAgentModelSettingsController(deps) {
       dom.agentModelName.addEventListener('change', () => {
         const providerId = dom.agentModelProvider?.value || 'openai';
         renderReasoningOptions(providerId, dom.agentModelName.value);
+      });
+    }
+
+    // Entering/changing the API key lets us pull the live model list now (the cache
+    // is keyed per provider+method, so drop the stale "no key" miss and re-render).
+    if (dom.agentModelOpenAIKey) {
+      dom.agentModelOpenAIKey.addEventListener('change', () => {
+        const providerId = dom.agentModelProvider?.value || 'openai';
+        const method = dom.agentModelMethod?.value || 'api_key';
+        dynamicModelsCache.delete(`${providerId}:${methodKey(method)}`);
+        renderModelOptions(providerId, method, dom.agentModelName?.value || '');
       });
     }
 

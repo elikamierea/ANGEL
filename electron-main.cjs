@@ -531,6 +531,91 @@ ipcMain.handle('settings:refreshOpenAIOAuthToken', async (_event, payload) => {
   };
 });
 
+// "List models" endpoints per provider. OpenAI-compatible providers (and xAI)
+// expose GET /models returning { data: [{ id }] }; Anthropic uses the same shape
+// behind x-api-key; Gemini uses GET /v1beta/models?key=... returning
+// { models: [{ name: "models/..." }] }.
+const PROVIDER_MODEL_LIST_ENDPOINTS = {
+  openai: 'https://api.openai.com/v1/models',
+  xai: 'https://api.x.ai/v1/models',
+  deepseek: 'https://api.deepseek.com/models',
+  moonshot: 'https://api.moonshot.ai/v1/models',
+  doubao: 'https://ark.cn-beijing.volces.com/api/v3/models',
+  zai: 'https://api.z.ai/api/paas/v4/models',
+  qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1/models',
+  anthropic: 'https://api.anthropic.com/v1/models',
+  google: 'https://generativelanguage.googleapis.com/v1beta/models',
+};
+
+// Substrings that mark a model id as non-conversational (embeddings, audio,
+// image/video gen, moderation, legacy completion engines, etc). Denylist rather
+// than allowlist so unknown future chat models still pass through. Multimodal
+// chat models ("vision", "search") are intentionally NOT blocked.
+const NON_CHAT_MODEL_MARKERS = [
+  'embed', 'rerank',
+  'tts', 'whisper', 'transcribe', 'audio', 'realtime', 'speech', 'voice', 'asr',
+  'paraformer', 'cosyvoice', 'sambert',
+  'image', 'dall-e', 'dalle', 'imagen', 'cogview', 'stable-diffusion', 'flux', 'wanx',
+  'video', 'cogvideo', 'veo', 'sora',
+  'moderation', 'guard', 'ocr', 'aqa',
+  'davinci', 'babbage', 'curie', '-instruct-davinci',
+];
+
+function isConversationalModelId(id) {
+  const lower = String(id || '').toLowerCase();
+  if (!lower) return false;
+  return !NON_CHAT_MODEL_MARKERS.some((marker) => lower.includes(marker));
+}
+
+function parseProviderModelIds(data) {
+  let ids = [];
+  if (data && typeof data === 'object') {
+    // Gemini: { models: [{ name: "models/gemini-..." }] }
+    if (Array.isArray(data.models)) {
+      ids = data.models.map((m) => String(m?.name || m?.id || '').replace(/^models\//, '').trim());
+    } else if (Array.isArray(data.data)) {
+      // OpenAI-compatible / Anthropic: { data: [{ id }] }
+      ids = data.data.map((m) => String(m?.id || '').trim());
+    }
+  }
+  return ids.filter(Boolean).filter(isConversationalModelId);
+}
+
+// Fetches the live model list for a provider so the Agent Model dialog can merge
+// it on top of the static catalog. Runs in main to avoid renderer CORS. Any
+// failure returns { ok:false } so the renderer silently keeps the static list.
+ipcMain.handle('settings:listProviderModels', async (_event, payload) => {
+  const providerId = String(payload?.providerId || '').trim();
+  const apiKey = String(payload?.apiKey || '').trim();
+  const endpoint = PROVIDER_MODEL_LIST_ENDPOINTS[providerId];
+  if (!endpoint) return { ok: false, error: `UNSUPPORTED_PROVIDER:${providerId}` };
+  if (!apiKey) return { ok: false, error: 'MISSING_API_KEY' };
+
+  try {
+    let url = endpoint;
+    const headers = { 'Content-Type': 'application/json' };
+    if (providerId === 'anthropic') {
+      headers['x-api-key'] = apiKey;
+      headers['anthropic-version'] = '2023-06-01';
+    } else if (providerId === 'google') {
+      url = `${endpoint}?key=${encodeURIComponent(apiKey)}&pageSize=1000`;
+    } else {
+      headers.Authorization = `Bearer ${apiKey}`;
+    }
+
+    const response = await fetch(url, { method: 'GET', headers });
+    const raw = await response.text();
+    if (!response.ok) {
+      return { ok: false, error: `HTTP_${response.status}`, detail: String(raw).slice(0, 500) };
+    }
+    let data = null;
+    try { data = JSON.parse(raw); } catch { data = null; }
+    return { ok: true, models: parseProviderModelIds(data) };
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error) };
+  }
+});
+
 ipcMain.handle('project:openFolder', async (_event, hintPath) => {
   const opts = {
     properties: ['openDirectory'],
