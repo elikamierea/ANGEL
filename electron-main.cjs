@@ -650,9 +650,11 @@ function isExcludedFromSaveAs(sourceRoot, entryPath) {
 }
 
 ipcMain.handle('project:saveAs', async (_event, payload) => {
+  // sourceRoot is optional: when a project folder is open we clone its tree,
+  // otherwise (no project open) we scaffold a fresh project from the template
+  // so the in-memory graph can still be persisted somewhere on disk.
   const sourceRoot = String(payload?.sourceRoot || '').trim();
   const angelContent = typeof payload?.angelContent === 'string' ? payload.angelContent : '';
-  if (!sourceRoot) throw new Error('MISSING_SOURCE_ROOT');
   if (!angelContent) throw new Error('MISSING_CONTENT');
 
   // Pick the destination folder, sharing the project open/create file lineage.
@@ -671,19 +673,24 @@ ipcMain.handle('project:saveAs', async (_event, payload) => {
   const targetDir = targetDialog.filePaths[0];
   await saveOpenDialogState({ defaultPath: path.dirname(targetDir) });
 
-  const sourceResolved = path.resolve(sourceRoot);
   const targetResolved = path.resolve(targetDir);
-  if (targetResolved === sourceResolved || targetResolved.startsWith(sourceResolved + path.sep)) {
+  const sourceResolved = sourceRoot ? path.resolve(sourceRoot) : '';
+  if (sourceResolved && (targetResolved === sourceResolved || targetResolved.startsWith(sourceResolved + path.sep))) {
     throw new Error('TARGET_INSIDE_SOURCE');
   }
 
   await ensureDirectoryEmpty(targetResolved);
 
-  // Clone the project tree, dropping the derived/VCS dirs above.
-  await fs.cp(sourceResolved, targetResolved, {
-    recursive: true,
-    filter: (src) => !isExcludedFromSaveAs(sourceResolved, src),
-  });
+  if (sourceResolved) {
+    // Clone the open project tree, dropping the derived/VCS dirs above.
+    await fs.cp(sourceResolved, targetResolved, {
+      recursive: true,
+      filter: (src) => !isExcludedFromSaveAs(sourceResolved, src),
+    });
+  } else {
+    // No project open: lay down a fresh template tree, matching New Project.
+    await copyTemplateDirectory(targetResolved);
+  }
 
   // Write the current (possibly unsaved) graph as the copy's angel.json.
   const angelPath = path.join(targetResolved, 'angel.json');

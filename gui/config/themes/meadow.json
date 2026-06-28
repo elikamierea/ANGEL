@@ -25,7 +25,7 @@
                     "--chip-border":  "#5a8c38",
                     "--chip-protected-border":  "#d8a838",
                     "--chip-protected-text":  "#6a4810",
-                    "--graph-edge":  "#6ca848",
+                    "--graph-grid":  "#6ca848",
                     "--graph-edge-selected":  "#3a7a18",
                     "--graph-node-text":  "#1f3a1a",
                     "--graph-node-fill-selected":  "#c2e0a2",

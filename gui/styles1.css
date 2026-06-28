@@ -59,7 +59,7 @@
   --edge-dir-in-text: #d8c9ff;
 
   /* Canvas drawing theme (consumed by app.js) */
-  --graph-edge: #5f6b7a;
+  --graph-grid: #5f6b7a;
   --graph-edge-selected: #8dc8ff;
   --graph-edge-endpoint: #dbe7f7;
   --graph-node-fill: #1d2734;

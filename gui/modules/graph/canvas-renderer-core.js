@@ -7,11 +7,15 @@ export function createCanvasRendererCore(deps) {
     normalizeSelectedNodeIds,
     renderGraphSceneItems,
     renderCanvasOverlays,
+    rebuildNodeIndex,
   } = deps;
 
   function render() {
     syncMirrorNodes();
     normalizeSelectedNodeIds();
+    // Refresh the id -> node index once per frame so scene rendering and
+    // edge-visibility checks can do O(1) lookups instead of O(N) scans.
+    rebuildNodeIndex();
     ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
     renderGraphSceneItems();
     renderCanvasOverlays();

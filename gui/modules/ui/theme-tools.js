@@ -23,7 +23,7 @@ const THEME_COLOR_KEYS = [
   '--chip-border',
   '--chip-protected-border',
   '--chip-protected-text',
-  '--graph-edge',
+  '--graph-grid',
   '--graph-edge-selected',
   '--graph-node-text',
   '--graph-node-fill-selected',
@@ -116,7 +116,7 @@ const COLOR_INPUT_BINDINGS = [
   ['themeChipProtectedBorder', '--chip-protected-border', '#e8b563'],
   ['themeChipProtectedText', '--chip-protected-text', '#ffd899'],
 
-  ['themeGraphEdge', '--graph-edge', '#5f6b7a'],
+  ['themeGraphGrid', '--graph-grid', '#5f6b7a'],
   ['themeGraphEdgeSelected', '--graph-edge-selected', '#8dc8ff'],
   ['themeNodeText', '--graph-node-text', '#e8eef7'],
   ['themeNodeFillSelected', '--graph-node-fill-selected', '#2f5d95'],
@@ -179,7 +179,7 @@ export function createGraphPalette({ viewSettings, cssVar }) {
     nodeStroke: viewSettings.node_stroke_palette_hex || [cssVar('--graph-node-stroke', '#4b5b72')],
     nodeStrokeSelected: [cssVar('--graph-node-stroke-selected', '#8cc2ff')],
     nodeText: [cssVar('--graph-node-text', '#e8eef7')],
-    edge: [cssVar('--graph-edge', '#5f6b7a')],
+    grid: [cssVar('--graph-grid', '#5f6b7a')],
     edgeSelected: [cssVar('--graph-edge-selected', '#8dc8ff')],
   };
 }
@@ -531,7 +531,7 @@ export function createThemeSettingsController({
     graphPalette.nodeFill = [...settings.nodeFillPalette];
     graphPalette.nodeStroke = [...settings.nodeStrokePalette];
     if (settings.cssVars['--graph-node-text']) graphPalette.nodeText = [settings.cssVars['--graph-node-text']];
-    if (settings.cssVars['--graph-edge']) graphPalette.edge = [settings.cssVars['--graph-edge']];
+    if (settings.cssVars['--graph-grid']) graphPalette.grid = [settings.cssVars['--graph-grid']];
     if (settings.cssVars['--graph-edge-selected']) graphPalette.edgeSelected = [settings.cssVars['--graph-edge-selected']];
 
     applyBackgroundImage(settings);

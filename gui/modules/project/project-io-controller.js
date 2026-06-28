@@ -224,17 +224,17 @@ export function createProjectIOController(deps) {
       setStatus('Save As is only available in the desktop app.');
       return;
     }
-    if (!state.projectRootPath) {
-      setStatus('Save As needs an open project folder. Use New / Open Project first.');
-      return;
-    }
 
+    // sourceRoot is empty when no project folder is open; the backend then
+    // scaffolds a fresh project from the template so the current in-memory
+    // graph is still saved to disk instead of being lost.
+    const hasOpenProject = Boolean(state.projectRootPath);
     const serialized = JSON.stringify(getProjectPayload(), null, 2);
-    setStatus('Saving project copy...');
+    setStatus(hasOpenProject ? 'Saving project copy...' : 'Saving project to new folder...');
 
     try {
       const result = await electronAPI.saveProjectAs({
-        sourceRoot: state.projectRootPath,
+        sourceRoot: state.projectRootPath || '',
         angelContent: serialized,
       });
       // Switch the editor over to the freshly written copy and mark it clean.
@@ -250,7 +250,8 @@ export function createProjectIOController(deps) {
           : gitInit?.attempted
             ? ' (Git init failed; copy still created)'
             : '';
-      setStatus(`Saved copy to folder: ${result.rootPath}${gitNote}`);
+      const savedVerb = hasOpenProject ? 'Saved copy to folder' : 'Saved project to folder';
+      setStatus(`${savedVerb}: ${result.rootPath}${gitNote}`);
     } catch (error) {
       const message = error?.message || 'unknown error';
       if (message === 'USER_CANCEL') {

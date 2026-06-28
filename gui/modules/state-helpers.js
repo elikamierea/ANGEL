@@ -13,6 +13,7 @@ export function createStateHelpers(deps) {
     render,
     renderRightPanel,
     setStatus,
+    rebuildNodeIndex,
   } = deps;
 
   function deepClone(value) {
@@ -42,6 +43,10 @@ export function createStateHelpers(deps) {
     replaceArray(nodes, deepClone(snapshot.nodes || []));
     replaceArray(edges, deepClone(snapshot.edges || []));
     replaceArray(conflicts, deepClone(snapshot.conflicts || []));
+    // Node identities were swapped wholesale; refresh the lookup index now so
+    // the pre-render UI passes below (hierarchy/sidebar/conflicts) don't read a
+    // stale map. A same-size snapshot wouldn't trip the length-based guard.
+    rebuildNodeIndex();
 
     state.selectedNodeId = snapshot.selectedNodeId || null;
     state.selectedNodeIds = new Set(snapshot.selectedNodeIds || (snapshot.selectedNodeId ? [snapshot.selectedNodeId] : []));

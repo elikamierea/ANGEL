@@ -9,6 +9,7 @@ export function createCanvasRendererScene(deps) {
     drawAdaptiveGrid,
     drawNode,
     drawEdge,
+    getNodeById,
   } = deps;
 
   function renderGraphSceneItems() {
@@ -42,8 +43,8 @@ export function createCanvasRendererScene(deps) {
         continue;
       }
       const edge = item.edge;
-      const a = nodes.find((n) => n.id === edge.from);
-      const b = nodes.find((n) => n.id === edge.to);
+      const a = getNodeById(edge.from);
+      const b = getNodeById(edge.to);
       if (!a || !b) continue;
       if (getNodeLodLevel(a) === 'hidden' || getNodeLodLevel(b) === 'hidden') continue;
       drawEdge(a, b, edge);

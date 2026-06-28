@@ -37,6 +37,7 @@ import { createCanvasRendererPrimitives } from './modules/graph/canvas-renderer-
 import { createCanvasRendererOverlays } from './modules/graph/canvas-renderer-overlays.js';
 import { createCanvasRendererScene } from './modules/graph/canvas-renderer-scene.js';
 import { createCanvasRendererCore } from './modules/graph/canvas-renderer-core.js';
+import { createNodeIndex } from './modules/graph/node-index.js';
 import { createEdgeRenderHelpers } from './modules/graph/edge-render-helpers.js';
 import { createCanvasCoordinates } from './modules/graph/canvas-coordinates.js';
 import { createEditClipboardCommands } from './modules/edit/edit-clipboard-commands.js';
@@ -64,6 +65,9 @@ const containmentRelations = [];
 const mirrorRelations = [];
 
 const conflicts = [];
+
+// Fast id -> node lookup; rebuilt once per render frame (see node-index.js).
+const nodeIndex = createNodeIndex({ nodes });
 
 const canvas = document.getElementById('graph-canvas');
 const ctx = canvas.getContext('2d');
@@ -132,7 +136,7 @@ const themeChipText = document.getElementById('theme-chip-text');
 const themeChipBorder = document.getElementById('theme-chip-border');
 const themeChipProtectedBorder = document.getElementById('theme-chip-protected-border');
 const themeChipProtectedText = document.getElementById('theme-chip-protected-text');
-const themeGraphEdge = document.getElementById('theme-graph-edge');
+const themeGraphGrid = document.getElementById('theme-graph-grid');
 const themeGraphEdgeSelected = document.getElementById('theme-graph-edge-selected');
 const themeNodeText = document.getElementById('theme-node-text');
 const themeNodeFillSelected = document.getElementById('theme-node-fill-selected');
@@ -1181,6 +1185,19 @@ function drawNode(...args) { return _drawNodeImpl(...args); }
 function renderCanvasOverlays(...args) { return _renderCanvasOverlaysImpl(...args); }
 function renderGraphSceneItems(...args) { return _renderGraphSceneItemsImpl(...args); }
 function render(...args) { return _renderImpl(...args); }
+// Coalesce burst-y interaction redraws (high-frequency pointer move / wheel)
+// into a single draw per animation frame. State logic is unaffected — only the
+// draw is deferred — so this is safe for any caller that doesn't read canvas
+// pixels synchronously right after.
+let _renderRafScheduled = false;
+function scheduleRender() {
+  if (_renderRafScheduled) return;
+  _renderRafScheduled = true;
+  requestAnimationFrame(() => {
+    _renderRafScheduled = false;
+    render();
+  });
+}
 function resizeCanvasToDisplay(...args) { return _resizeCanvasToDisplayImpl(...args); }
 function getAnchorWorld(...args) { return _getAnchorWorldImpl(...args); }
 function projectToNodeEdge(...args) { return _projectToNodeEdgeImpl(...args); }
@@ -1280,6 +1297,7 @@ const {
   render,
   renderRightPanel,
   setStatus,
+  rebuildNodeIndex: nodeIndex.rebuild,
 });
 
 function flushInspectorPendingEdits() {
@@ -1362,6 +1380,7 @@ const graphDomain = createGraphDomain({
   isMirrorNode,
   getNodeLodLevel,
   rectContainsRect,
+  getNodeById: nodeIndex.getNodeById,
 });
 _parseLayerIndexImpl = graphDomain.parseLayerIndex;
 _getActiveLayerIndexImpl = graphDomain.getActiveLayerIndex;
@@ -2287,7 +2306,7 @@ const themeSettingsController = createThemeSettingsController({
     themeChipBorder,
     themeChipProtectedBorder,
     themeChipProtectedText,
-    themeGraphEdge,
+    themeGraphGrid,
     themeGraphEdgeSelected,
     themeNodeText,
     themeNodeFillSelected,
@@ -2481,7 +2500,7 @@ const interactionPointerMove = createInteractionPointerMove({
   getCursorForHandle,
   ensureAutoPanLoop,
   projectToNodeEdge,
-  render,
+  render: scheduleRender,
   renderRightPanel,
   applySelectionTransformByBoxes,
   updatePastePreview,
@@ -2569,7 +2588,7 @@ const interactionClickWheel = createInteractionClickWheel({
   setSingleNodeSelection,
   setStatus,
   rebuildSidebar,
-  render,
+  render: scheduleRender,
   renderRightPanel,
   finalizeTransformSession,
   screenToWorld,
@@ -2638,8 +2657,7 @@ const canvasRendererOverlays = createCanvasRendererOverlays({
   cssVar,
   worldToScreen,
   getNodeLodLevel,
-  projectToNodeEdge,
-  getAnchorWorld,
+  getNodeStrokeColor: canvasRendererPrimitives.getNodeStrokeColor,
   getSelectionBBoxFromSession,
   getRectResizeHandles,
   getSelectionRectWorld,
@@ -2656,6 +2674,7 @@ const canvasRendererScene = createCanvasRendererScene({
   drawAdaptiveGrid: canvasRendererPrimitives.drawAdaptiveGrid,
   drawNode,
   drawEdge,
+  getNodeById: nodeIndex.getNodeById,
 });
 _renderGraphSceneItemsImpl = canvasRendererScene.renderGraphSceneItems;
 
@@ -2667,6 +2686,7 @@ const canvasRendererCore = createCanvasRendererCore({
   normalizeSelectedNodeIds,
   renderGraphSceneItems,
   renderCanvasOverlays,
+  rebuildNodeIndex: nodeIndex.rebuild,
 });
 _renderImpl = canvasRendererCore.render;
 _resizeCanvasToDisplayImpl = canvasRendererCore.resizeCanvasToDisplay;

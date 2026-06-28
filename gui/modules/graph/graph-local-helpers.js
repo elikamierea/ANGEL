@@ -91,31 +91,88 @@ export function createGraphLocalHelpers(deps) {
     return depthMap;
   }
 
-  // Compute endpoint anchors with stable center-line fallback when explicit pointer points are absent.
+  function rectContains(outer, inner) {
+    return outer.x <= inner.x
+      && outer.y <= inner.y
+      && outer.x + outer.w >= inner.x + inner.w
+      && outer.y + outer.h >= inner.y + inner.h;
+  }
+
+  // Parametric range [tmin, tmax] where the infinite line `base + s*dir` overlaps
+  // the node's rectangle (slab method). Returns null when the line misses it.
+  function lineBoxRange(node, base, dir) {
+    let tmin = -Infinity;
+    let tmax = Infinity;
+    const left = node.x;
+    const right = node.x + node.w;
+    const top = node.y;
+    const bottom = node.y + node.h;
+
+    if (Math.abs(dir.x) < 1e-9) {
+      if (base.x < left || base.x > right) return null;
+    } else {
+      let t1 = (left - base.x) / dir.x;
+      let t2 = (right - base.x) / dir.x;
+      if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+      tmin = Math.max(tmin, t1);
+      tmax = Math.min(tmax, t2);
+    }
+
+    if (Math.abs(dir.y) < 1e-9) {
+      if (base.y < top || base.y > bottom) return null;
+    } else {
+      let t1 = (top - base.y) / dir.y;
+      let t2 = (bottom - base.y) / dir.y;
+      if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+      tmin = Math.max(tmin, t1);
+      tmax = Math.min(tmax, t2);
+    }
+
+    if (tmax < tmin) return null;
+    return { tmin, tmax };
+  }
+
+  // Anchor where the drag line (base + s*dir) crosses the node's border.
+  // sign > 0 takes the far (+dir) crossing, sign < 0 the near (-dir) crossing.
+  // Falls back to a center ray toward `fallbackTarget` if the line misses.
+  function lineEdgeAnchor(node, base, dir, sign, fallbackTarget) {
+    const range = lineBoxRange(node, base, dir);
+    if (!range) {
+      return projectToNodeEdgeByRay(node, fallbackTarget.x, fallbackTarget.y);
+    }
+    const s = sign >= 0 ? range.tmax : range.tmin;
+    return projectToNodeEdge(node, base.x + dir.x * s, base.y + dir.y * s);
+  }
+
+  // Endpoint anchors are the crossings of the press->release line with each
+  // node's border. When the two pointer points coincide (e.g. programmatic
+  // center-to-center edges) we fall back to the stable center-line ray.
   function buildEdgeAnchors(fromNode, toNode, startWorld, endWorld) {
-    const fallbackFrom = { x: fromNode.x + fromNode.w / 2, y: fromNode.y + fromNode.h / 2 };
-    const fallbackTo = { x: toNode.x + toNode.w / 2, y: toNode.y + toNode.h / 2 };
+    const fromCenter = { x: fromNode.x + fromNode.w / 2, y: fromNode.y + fromNode.h / 2 };
+    const toCenter = { x: toNode.x + toNode.w / 2, y: toNode.y + toNode.h / 2 };
 
-    const fromPt = startWorld || fallbackFrom;
-    const toPt = endWorld || fallbackTo;
+    const start = startWorld || fromCenter;
+    const end = endWorld || toCenter;
+    const dir = { x: end.x - start.x, y: end.y - start.y };
 
-    const useCenterLineDefault =
-      !startWorld
-      || !endWorld
-      || (
-        Math.abs(Number(fromPt?.x) - (fromNode.x + fromNode.w / 2)) < 1e-9
-        && Math.abs(Number(fromPt?.y) - (fromNode.y + fromNode.h / 2)) < 1e-9
-        && Math.abs(Number(toPt?.x) - (toNode.x + toNode.w / 2)) < 1e-9
-        && Math.abs(Number(toPt?.y) - (toNode.y + toNode.h / 2)) < 1e-9
-      );
+    if (Math.abs(dir.x) < 1e-9 && Math.abs(dir.y) < 1e-9) {
+      return {
+        fromAnchor: projectToNodeEdgeByRay(fromNode, toCenter.x, toCenter.y),
+        toAnchor: projectToNodeEdgeByRay(toNode, fromCenter.x, fromCenter.y),
+      };
+    }
+
+    // Normally each node's anchor faces the other node: fromNode exits toward
+    // +dir, toNode toward -dir. But if one node fully contains the other, the
+    // line never leaves the outer node between the points, so its crossing
+    // toward the inner node is meaningless -- use the reverse extension (the
+    // opposite border) for the container instead.
+    const fromSign = rectContains(fromNode, toNode) ? -1 : 1;
+    const toSign = rectContains(toNode, fromNode) ? 1 : -1;
 
     return {
-      fromAnchor: useCenterLineDefault
-        ? projectToNodeEdgeByRay(fromNode, fallbackTo.x, fallbackTo.y)
-        : projectToNodeEdge(fromNode, fromPt.x, fromPt.y),
-      toAnchor: useCenterLineDefault
-        ? projectToNodeEdgeByRay(toNode, fallbackFrom.x, fallbackFrom.y)
-        : projectToNodeEdge(toNode, toPt.x, toPt.y),
+      fromAnchor: lineEdgeAnchor(fromNode, start, dir, fromSign, toCenter),
+      toAnchor: lineEdgeAnchor(toNode, start, dir, toSign, fromCenter),
     };
   }
 

@@ -143,7 +143,7 @@
   "modal.theme.field.bubbleSystemBg": "系統氣泡背景",
   "modal.theme.field.bubbleSystemBorder": "系統氣泡邊框",
   "modal.theme.field.bubbleSystemText": "系統氣泡文字",
-  "modal.theme.field.graphEdge": "圖邊顏色",
+  "modal.theme.field.graphGrid": "網格顏色",
   "modal.theme.field.graphEdgeSelected": "選取圖邊顏色",
   "modal.theme.field.graphNodeText": "圖節點文字",
   "modal.theme.field.nodeFillSelected": "選取節點填充",

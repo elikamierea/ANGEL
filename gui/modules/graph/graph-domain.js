@@ -9,6 +9,7 @@ export function createGraphDomain(deps) {
     isMirrorNode,
     getNodeLodLevel,
     rectContainsRect,
+    getNodeById,
   } = deps;
 
   function getAllLayerIds() {
@@ -51,8 +52,8 @@ export function createGraphDomain(deps) {
 
   function isEdgeVisibleInLayer(edge, layerIndex) {
     if (getCreatedLayer(edge.createdLayer) > layerIndex) return false;
-    const fromNode = nodes.find((n) => n.id === edge.from);
-    const toNode = nodes.find((n) => n.id === edge.to);
+    const fromNode = getNodeById(edge.from);
+    const toNode = getNodeById(edge.to);
     if (!fromNode || !toNode) return false;
     return isNodeVisibleInLayer(fromNode, layerIndex) && isNodeVisibleInLayer(toNode, layerIndex);
   }

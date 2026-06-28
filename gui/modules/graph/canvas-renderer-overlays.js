@@ -7,8 +7,7 @@ export function createCanvasRendererOverlays(deps) {
     cssVar,
     worldToScreen,
     getNodeLodLevel,
-    projectToNodeEdge,
-    getAnchorWorld,
+    getNodeStrokeColor,
     getSelectionBBoxFromSession,
     getRectResizeHandles,
     getSelectionRectWorld,
@@ -18,11 +17,13 @@ export function createCanvasRendererOverlays(deps) {
     if (state.dragMode === 'edge-create' && state.edgeCreateFromNodeId) {
       const src = nodes.find((n) => n.id === state.edgeCreateFromNodeId);
       if (src) {
-        const startAnchor = projectToNodeEdge(src, state.edgeCreateStartWorldX, state.edgeCreateStartWorldY);
-        const srcW = getAnchorWorld(src, startAnchor);
-        const s = worldToScreen(srcW.x, srcW.y);
+        // Preview is just the raw press point -> current cursor line; the actual
+        // border anchoring is resolved on drop in buildEdgeAnchors.
+        const s = worldToScreen(state.edgeCreateStartWorldX, state.edgeCreateStartWorldY);
         const t = worldToScreen(state.edgeCreateWorldX, state.edgeCreateWorldY);
-        ctx.strokeStyle = cssVar('--graph-edge-selected', '#8dc8ff');
+        // Preview line takes the source node's border color so the in-progress
+        // edge reads as originating from that node.
+        ctx.strokeStyle = getNodeStrokeColor(src);
         ctx.lineWidth = 2;
         ctx.setLineDash([6, 4]);
         ctx.beginPath();

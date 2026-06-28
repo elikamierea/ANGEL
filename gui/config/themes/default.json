@@ -28,7 +28,7 @@
                     "--input-bg":  "#101318",
                     "--input-text":  "#e7edf7",
                     "--input-border":  "#3a4453",
-                    "--graph-edge":  "#5f6b7a",
+                    "--graph-grid":  "#5f6b7a",
                     "--graph-edge-selected":  "#8dc8ff",
                     "--graph-node-text":  "#e8eef7",
                     "--graph-node-fill-selected":  "#2f5d95",

@@ -41,7 +41,7 @@ export function createCanvasRendererPrimitives(deps) {
 
     const canvasWidth = Math.max(1, ctx.canvas?.clientWidth || ctx.canvas?.width || 1);
     const canvasHeight = Math.max(1, ctx.canvas?.clientHeight || ctx.canvas?.height || 1);
-    const edgeColor = palettePick(graphPalette.edge, 0, '#5f6b7a');
+    const gridColor = palettePick(graphPalette.grid, 0, '#5f6b7a');
 
     const baseAlpha = clamp01(Number(cssVar('--graph-grid-opacity', '0.08')) || 0.08);
     const minAlphaFactor = 0.7;
@@ -91,7 +91,7 @@ export function createCanvasRendererPrimitives(deps) {
     const primaryAlphaScale = 1 - Math.max(fadeInFiner, fadeInCoarser) * 0.35;
 
     ctx.save();
-    ctx.strokeStyle = edgeColor;
+    ctx.strokeStyle = gridColor;
     ctx.lineWidth = 1.5;
 
     drawGridAtSpacing(spacingWorld, primaryAlphaScale);
@@ -106,8 +106,8 @@ export function createCanvasRendererPrimitives(deps) {
     if (len < 0.0001) return;
     const ux = direction.x / len;
     const uy = direction.y / len;
-    const size = 14;
-    const spread = 7;
+    const size = 10.5;
+    const spread = 5.25;
 
     const bx = point.x - ux * size;
     const by = point.y - uy * size;
@@ -123,6 +123,11 @@ export function createCanvasRendererPrimitives(deps) {
     ctx.fill();
   }
 
+  function getNodeStrokeColor(node) {
+    const colorIndex = normalizeColorIndex(node?.colorIndex);
+    return palettePick(graphPalette.nodeStroke, colorIndex, '#4b5b72');
+  }
+
   function drawEdge(a, b, edge) {
     const fromW = getAnchorWorld(a, edge.fromAnchor);
     const toW = getAnchorWorld(b, edge.toAnchor);
@@ -130,9 +135,12 @@ export function createCanvasRendererPrimitives(deps) {
     const to = worldToScreen(toW.x, toW.y);
 
     const selected = state.selectedEdgeId === edge.id;
+    // Tint each edge with the mean of its two endpoint nodes' border colors so
+    // the connection visually inherits from both ends without per-frame gradient
+    // allocation. Selected edges keep the dedicated highlight color.
     const strokeColor = selected
       ? palettePick(graphPalette.edgeSelected, 0, '#8dc8ff')
-      : palettePick(graphPalette.edge, 0, '#5f6b7a');
+      : mixHexColors(getNodeStrokeColor(a), getNodeStrokeColor(b), 0.5, clamp01);
     ctx.strokeStyle = strokeColor;
     ctx.lineWidth = selected ? 3 : 2;
 
@@ -301,6 +309,7 @@ export function createCanvasRendererPrimitives(deps) {
   return {
     getNodeScreenAreaPx2,
     getNodeLodLevel,
+    getNodeStrokeColor,
     drawAdaptiveGrid,
     drawEdge,
     drawNode,

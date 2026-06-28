@@ -143,7 +143,7 @@
   "modal.theme.field.bubbleSystemBg": "システム吹き出し背景",
   "modal.theme.field.bubbleSystemBorder": "システム吹き出しボーダー",
   "modal.theme.field.bubbleSystemText": "システム吹き出しテキスト",
-  "modal.theme.field.graphEdge": "グラフエッジ色",
+  "modal.theme.field.graphGrid": "グリッド色",
   "modal.theme.field.graphEdgeSelected": "選択中のエッジ色",
   "modal.theme.field.graphNodeText": "グラフノードテキスト",
   "modal.theme.field.nodeFillSelected": "選択中のノード塗り",
