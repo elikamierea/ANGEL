@@ -435,6 +435,21 @@
           <button id="agent-model-close" type="button" data-i18n="ui.symbol.close">X</button>
         </div>
         <div class="modal-body">
+          <label><span>Backend</span>
+            <select id="agent-model-backend"></select>
+          </label>
+          <label id="agent-model-cli-token-row" class="hidden"><span>CLI Auth Token</span>
+            <input id="agent-model-cli-token" type="password" placeholder="ANTHROPIC_AUTH_TOKEN (blank = subscription login)" autocomplete="off" />
+          </label>
+          <div id="agent-model-cli-auth" class="hidden agent-model-cli-auth">
+            <div class="agent-model-cli-auth-row">
+              <span id="agent-model-cli-auth-status">…</span>
+              <button id="agent-model-cli-login" type="button">Sign in</button>
+              <button id="agent-model-cli-logout" type="button">Sign out</button>
+            </div>
+            <pre id="agent-model-cli-auth-log" class="hidden agent-model-cli-auth-log"></pre>
+          </div>
+          <div id="agent-model-http-fields">
           <label><span data-i18n="modal.agentModel.provider">Provider</span>
             <select id="agent-model-provider"></select>
           </label>
@@ -470,6 +485,7 @@
           <label><span data-i18n="modal.agentModel.todoLoopMaxRounds">Todo Loop Total Rounds</span>
             <input id="agent-model-todo-loop-rounds" type="number" min="1" step="1" data-i18n-placeholder="modal.agentModel.todoLoopMaxRoundsPlaceholder" placeholder="100" />
           </label>
+          </div>
           <label class="inline-check"><input id="agent-danger-skip-perms-toggle" type="checkbox" /> <span data-i18n="modal.agentModel.dangerouslySkipPermissions">Dangerously skip permissions</span></label>
         </div>
         <div class="modal-actions">
@@ -743,6 +759,23 @@
         <div class="modal-actions">
           <button id="run-test-cancel" type="button" data-i18n="modal.common.cancel">Cancel</button>
           <button id="run-test-confirm" type="button" data-i18n="modal.runTest.run">Run</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="cli-memory-seed-modal" class="modal hidden" aria-hidden="true" role="dialog" aria-labelledby="cli-memory-seed-title">
+      <div class="modal-backdrop" data-close-cli-memory-seed="1"></div>
+      <div class="modal-panel">
+        <div class="modal-head">
+          <h3 id="cli-memory-seed-title" data-i18n="modal.cliMemorySeed.title">Memory for the new source</h3>
+          <button id="cli-memory-seed-close" type="button" data-i18n="ui.symbol.close">X</button>
+        </div>
+        <div class="modal-body">
+          <p id="cli-memory-seed-message" class="modal-note" data-i18n="modal.cliMemorySeed.message">This source has no memory yet.</p>
+          <div id="cli-memory-seed-options" class="cli-memory-seed-options"></div>
+        </div>
+        <div class="modal-actions">
+          <button id="cli-memory-seed-empty" type="button" data-i18n="modal.cliMemorySeed.startEmpty">Start empty</button>
         </div>
       </div>
     </section>

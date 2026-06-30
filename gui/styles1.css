@@ -520,6 +520,27 @@ body.dragging-select-none, body.dragging-select-none * {
 .token-stat-value {
   font-size: 13px;
 }
+.token-stat-value.token-stat-warn {
+  color: var(--validation-warn);
+  font-weight: 600;
+}
+.usage-window {
+  padding: 6px 0;
+}
+.usage-window-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.usage-window-percent.token-stat-warn {
+  color: var(--validation-warn);
+}
+.usage-window-reset {
+  margin-top: 2px;
+  text-align: right;
+  color: var(--muted-text);
+}
 .agent-chat-todos {
   flex: 1;
   min-height: 0;
@@ -856,6 +877,8 @@ body.dragging-agent-chat * {
   padding: 7px 8px;
 }
 .modal-note { margin: 0; font-size: 12px; color: var(--modal-note-text); }
+.cli-memory-seed-options { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.cli-memory-seed-option { width: 100%; text-align: left; padding: 8px 10px; cursor: pointer; }
 .execute-fail-detail {
   margin: 0;
   max-height: 220px;

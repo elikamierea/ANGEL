@@ -3,10 +3,19 @@ const fs = require('fs/promises');
 const fsSync = require('fs');
 const path = require('path');
 const http = require('http');
+const https = require('https');
+const os = require('os');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 
 const TEMPLATE_DIR = path.join(__dirname, 'new_project_template');
+
+// Source-of-truth (hardcoded) agent system prompts live here, optionally split into
+// per-profile subfolders. At project creation we copy the resolved prompt into the
+// project tree (agents/<agent>/prompt.md) so it becomes a runtime-editable, per-project file.
+const PROMPTS_AGENTS_DIR = path.join(__dirname, 'prompts', 'agents');
+const KNOWN_PROMPT_PROFILES = new Set(['full', 'minimized', 'full-image', 'minimized-image']);
+const RESERVED_AGENT_IDS = ['designer', 'orchestrator', 'programmer', 'resource-provider'];
 
 // CMake is shipped inside the app bundle (no-asar, so __dirname is the repo root in dev and
 // resources/app when packaged). buildToolEnv() prepends its bin/ to PATH for build child
@@ -36,6 +45,8 @@ const OPENAI_OAUTH_REDIRECT_HOST = 'localhost';
 const OPENAI_OAUTH_REDIRECT_PORT = 1455;
 const OPENAI_OAUTH_REDIRECT_PATH = '/auth/callback';
 const PROJECT_TEMPLATE_CATALOG_PATH = path.join(__dirname, 'shared', 'project-template-catalog.json');
+
+let mainWindow = null;
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -70,6 +81,8 @@ function createWindow() {
   });
 
   win.loadFile(path.join(__dirname, 'gui', 'index.html'));
+  mainWindow = win;
+  win.on('closed', () => { if (mainWindow === win) mainWindow = null; });
 }
 
 function sanitizeProjectName(input) {
@@ -180,6 +193,61 @@ function buildBlankProjectPayload(projectName, template = null) {
 
 async function copyTemplateDirectory(targetDir) {
   await fs.cp(TEMPLATE_DIR, targetDir, { recursive: true });
+}
+
+// Mirror of the renderer's resolveProjectPromptProfile: pick the prompt folder
+// (full/minimized/...) from the template, falling back to layer count, then null
+// (the flat prompts/agents/ folder).
+function resolvePromptProfile(template) {
+  const explicit = String(template?.promptProfile || '').trim().toLowerCase();
+  if (KNOWN_PROMPT_PROFILES.has(explicit)) return explicit;
+
+  const id = String(template?.id || '').trim().toLowerCase();
+  if (id) {
+    if (id.includes('full') || id.includes('4layer') || id.includes('4-layer')) return 'full';
+    if (id.includes('minimal') || id.includes('minimized') || id.includes('2layer') || id.includes('2-layer')) return 'minimized';
+  }
+
+  const layers = Array.isArray(template?.layers) ? template.layers : [];
+  if (layers.length === 4) return 'full';
+  if (layers.length === 2) return 'minimized';
+  return null;
+}
+
+// Read the hardcoded prompt for an agent, preferring the profile subfolder and
+// falling back to the flat prompts/agents/ folder. Returns null if neither exists.
+async function readHardcodedAgentPrompt(agentId, profile) {
+  const candidates = [];
+  if (profile) candidates.push(path.join(PROMPTS_AGENTS_DIR, profile, `${agentId}.prompt.md`));
+  candidates.push(path.join(PROMPTS_AGENTS_DIR, `${agentId}.prompt.md`));
+  for (const candidate of candidates) {
+    try {
+      return await fs.readFile(candidate, 'utf-8');
+    } catch (_) {
+      // try next candidate
+    }
+  }
+  return null;
+}
+
+// Seed per-project, runtime-editable prompt files at creation time:
+//   <projectRoot>/agents/<agent>/prompt.md
+// Only the agents referenced by the template are seeded. Missing source prompts
+// are skipped silently so project creation never hard-fails on a prompt gap.
+async function scaffoldAgentPrompts(targetDir, template) {
+  const profile = resolvePromptProfile(template);
+  const agents = Array.isArray(template?.agents) && template.agents.length > 0
+    ? template.agents.map((v) => String(v)).filter(Boolean)
+    : RESERVED_AGENT_IDS;
+
+  for (const agentId of agents) {
+    if (!RESERVED_AGENT_IDS.includes(agentId)) continue;
+    const text = await readHardcodedAgentPrompt(agentId, profile);
+    if (text == null) continue;
+    const promptPath = path.join(targetDir, 'agents', agentId, 'prompt.md');
+    await fs.mkdir(path.dirname(promptPath), { recursive: true });
+    await fs.writeFile(promptPath, text, 'utf-8');
+  }
 }
 
 async function tryInitGitRepository(targetDir) {
@@ -699,6 +767,7 @@ ipcMain.handle('project:create', async (_event, payload) => {
   const angelPath = path.join(targetDir, 'angel.json');
   const angelContent = JSON.stringify(buildBlankProjectPayload(projectName, selectedTemplate), null, 2);
   await fs.writeFile(angelPath, angelContent, 'utf-8');
+  await scaffoldAgentPrompts(targetDir, selectedTemplate);
   const gitInit = await tryInitGitRepository(targetDir);
   const fileTree = await buildFileTree(targetDir, targetDir);
 
@@ -775,6 +844,13 @@ ipcMain.handle('project:saveAs', async (_event, payload) => {
   } else {
     // No project open: lay down a fresh template tree, matching New Project.
     await copyTemplateDirectory(targetResolved);
+    // Seed runtime-editable agent prompts using the template embedded in the graph.
+    try {
+      const template = JSON.parse(angelContent)?.project?.template;
+      if (template) await scaffoldAgentPrompts(targetResolved, template);
+    } catch (_) {
+      // A malformed angelContent should not abort the Save As; prompts just stay unseeded.
+    }
   }
 
   // Write the current (possibly unsaved) graph as the copy's angel.json.
@@ -921,6 +997,11 @@ ipcMain.handle('project:toolRead', async (_event, payload) => {
   const slice = lines.slice(beginIdx, beginIdx + limit);
   const truncated = beginIdx + limit < lines.length;
 
+  // File metadata (used by e.g. the memory-seed dialog to label candidates).
+  let mtimeMs = 0;
+  let size = 0;
+  try { const st = await fs.stat(fullPath); mtimeMs = st.mtimeMs; size = st.size; } catch (_) {}
+
   return {
     path: normalized,
     content: slice.join('\n'),
@@ -929,6 +1010,8 @@ ipcMain.handle('project:toolRead', async (_event, payload) => {
     truncated,
     nextOffset: truncated ? start + limit : null,
     totalLines: lines.length,
+    mtimeMs,
+    size,
   };
 });
 
@@ -1305,7 +1388,7 @@ function runChildProcess(command, args, cwd, options = {}) {
     const child = spawn(command, args, {
       cwd,
       windowsHide: true,
-      shell: false,
+      shell: Boolean(options.shell),
       windowsVerbatimArguments: Boolean(options.windowsVerbatimArguments),
       ...(options.env ? { env: options.env } : {}),
     });
@@ -1585,6 +1668,471 @@ ipcMain.handle('project:checkBuildTools', async () => {
     return { msvc: { ok: true, vcvars } };
   }
   return { msvc: { ok: false, reason: 'vcvarsall.bat not found' } };
+});
+
+// === CLI sub-agent line (second model-interaction path) =====================
+// Spawns a coding-agent CLI (Claude Code now; Codex/domestic later) as an
+// autonomous sub-agent and STREAMS its stdout — newline-delimited JSON — to the
+// renderer, which parses each line via cli-agent-drivers.js. Unlike
+// project:runCommand (buffered request/response), this is a PUSH channel:
+// renderer subscribes to 'cliAgent:event' and we send one message per line.
+// The prompt arrives on the child's stdin (never argv) so arbitrary multi-line
+// user text needs no command-line quoting. Bins are allowlisted so the renderer
+// can't ask us to exec something arbitrary.
+const CLI_AGENT_ALLOWED_BINS = new Set(['claude', 'codex']);
+const activeCliAgentRuns = new Map(); // runId -> ChildProcess
+
+// Resolve a CLI launcher on Windows: a native `.exe` (e.g. claude) is spawned
+// directly with shell:false so Node escapes argv for us; an npm `.cmd`/`.bat`
+// shim (e.g. codex) can't be spawned without a shell, so we fall back to
+// shell:true. Our argv tokens are space-free (flags / uuids / relative paths /
+// model ids) and the prompt rides on stdin, so shell:true carries no quoting
+// risk. Cached per bin.
+const cliLauncherCache = new Map();
+function resolveCliLauncher(bin) {
+  if (cliLauncherCache.has(bin)) return cliLauncherCache.get(bin);
+  let resolved = { command: bin, useShell: false };
+  if (process.platform === 'win32') {
+    try {
+      const out = require('child_process').execFileSync('where', [bin], { encoding: 'utf-8' });
+      const matches = out.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+      const exe = matches.find((m) => /\.exe$/i.test(m));
+      const cmd = matches.find((m) => /\.(cmd|bat)$/i.test(m));
+      if (exe) resolved = { command: exe, useShell: false };
+      else if (cmd) resolved = { command: cmd, useShell: true };
+    } catch (_) { /* not found via `where`; fall back to bare bin */ }
+  }
+  cliLauncherCache.set(bin, resolved);
+  return resolved;
+}
+
+// === Mindmap MCP bridge (Phase 4b) =========================================
+// The stdio MCP server (a child of the CLI) reaches the LIVE graph through this
+// private localhost HTTP bridge, which relays each tool call to the renderer over
+// IPC. Bound to 127.0.0.1 + a per-session bearer token so only our server can
+// drive graph mutations.
+let mcpBridge = null; // { server, port, token }
+const pendingBridgeReqs = new Map(); // reqId -> { resolve, reject, timer }
+
+// main → renderer request/response: push the op and await the matching result.
+function relayToRenderer(op, tool, args, agentId) {
+  return new Promise((resolve, reject) => {
+    const wc = mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null;
+    if (!wc) { reject(new Error('renderer unavailable')); return; }
+    const reqId = crypto.randomUUID();
+    const timer = setTimeout(() => {
+      pendingBridgeReqs.delete(reqId);
+      reject(new Error('renderer relay timeout'));
+    }, 60000);
+    pendingBridgeReqs.set(reqId, { resolve, reject, timer });
+    wc.send('angelMcp:invoke', { reqId, op, tool, args, agentId: String(agentId || '') });
+  });
+}
+
+ipcMain.on('angelMcp:result', (_event, payload) => {
+  const reqId = String(payload?.reqId || '');
+  const pending = pendingBridgeReqs.get(reqId);
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  pendingBridgeReqs.delete(reqId);
+  if (payload?.ok) pending.resolve(payload.result);
+  else pending.reject(new Error(String(payload?.error || 'tool failed')));
+});
+
+function readRequestBody(req) {
+  return new Promise((resolve) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => resolve(body));
+  });
+}
+
+async function handleBridgeRequest(req, res, bridge) {
+  const sendJson = (obj, status = 200) => {
+    res.statusCode = status;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify(obj));
+  };
+  // Each CLI run gets its OWN bearer token, registered at launch and bound to that
+  // run's agentId (electron-main is the source of truth — it knows the agent when it
+  // spawns the run). So the bridge resolves "which agent" AUTHORITATIVELY from the
+  // token, not from a self-reported request field: a run can only present its own
+  // token → its own agentId, and can't spoof another agent. Any per-agent tool gets
+  // the right agentId for free.
+  const auth = String(req.headers.authorization || '');
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  if (!token || !bridge.tokens.has(token)) { res.statusCode = 401; res.end('unauthorized'); return; }
+  const agentId = bridge.tokens.get(token) || '';
+  try {
+    if (req.method === 'GET' && req.url === '/tools') {
+      const tools = await relayToRenderer('list');
+      sendJson({ tools: Array.isArray(tools) ? tools : [] });
+    } else if (req.method === 'POST' && req.url === '/invoke') {
+      const body = await readRequestBody(req);
+      let parsed = {};
+      try { parsed = JSON.parse(body || '{}'); } catch (_) { parsed = {}; }
+      // agentId comes from the TOKEN, never the body.
+      const result = await relayToRenderer('call', String(parsed.tool || ''), parsed.args || {}, agentId);
+      sendJson({ ok: true, result });
+    } else {
+      res.statusCode = 404;
+      res.end('not found');
+    }
+  } catch (e) {
+    // 200 + {ok:false} so the stdio server surfaces the message as a tool error
+    // (an HTTP error would instead read as "bridge call failed").
+    sendJson({ ok: false, error: String(e?.message || e) });
+  }
+}
+
+function ensureMcpBridge() {
+  if (mcpBridge) return Promise.resolve(mcpBridge);
+  return new Promise((resolve, reject) => {
+    // Singleton server/port for the app; per-run tokens live in `tokens` (token →
+    // agentId). The server closes over the bridge object so it sees registrations.
+    const bridge = { server: null, port: 0, tokens: new Map() };
+    const server = http.createServer((req, res) => { handleBridgeRequest(req, res, bridge); });
+    server.on('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      bridge.server = server;
+      bridge.port = server.address().port;
+      mcpBridge = bridge;
+      resolve(mcpBridge);
+    });
+  });
+}
+
+// Mint a per-run bearer token bound to the run's agentId (call at launch); drop it
+// when the run ends so it can't be reused.
+function registerBridgeRun(bridge, agentId) {
+  const token = crypto.randomBytes(24).toString('hex');
+  bridge.tokens.set(token, String(agentId || ''));
+  return token;
+}
+function unregisterBridgeRun(bridge, token) {
+  if (bridge && bridge.tokens && token) bridge.tokens.delete(token);
+}
+
+ipcMain.handle('cliAgent:detect', async (_event, payload) => {
+  const bin = String(payload?.bin || '').trim();
+  if (!CLI_AGENT_ALLOWED_BINS.has(bin)) return { ok: false, reason: 'unsupported-bin', bin };
+  const launcher = resolveCliLauncher(bin);
+  const res = await runChildProcess(launcher.command, ['--version'], process.cwd(), { timeoutMs: 10000, shell: launcher.useShell });
+  return { ok: Boolean(res?.ok), version: String(res?.stdout || '').trim(), bin };
+});
+
+// --- CLI auth (sign in / status / sign out from the settings UI) ------------
+// The renderer (ANGEL's own code) supplies the bin + the driver's fixed auth
+// subcommand args; the allowlist keeps this from execing anything arbitrary.
+function buffered(bin, args, timeoutMs) {
+  const launcher = resolveCliLauncher(bin);
+  return runChildProcess(launcher.command, args, process.cwd(), { timeoutMs, shell: launcher.useShell });
+}
+
+ipcMain.handle('cliAgent:authStatus', async (_event, payload) => {
+  const bin = String(payload?.bin || '').trim();
+  if (!CLI_AGENT_ALLOWED_BINS.has(bin)) return { ok: false, reason: 'unsupported-bin' };
+  const args = Array.isArray(payload?.args) ? payload.args.map((a) => String(a)) : [];
+  const res = await buffered(bin, args, 15000);
+  return { ok: Boolean(res?.ok), text: `${String(res?.stdout || '')}${String(res?.stderr || '')}`.trim() };
+});
+
+ipcMain.handle('cliAgent:authLogout', async (_event, payload) => {
+  const bin = String(payload?.bin || '').trim();
+  if (!CLI_AGENT_ALLOWED_BINS.has(bin)) return { ok: false, reason: 'unsupported-bin' };
+  const args = Array.isArray(payload?.args) ? payload.args.map((a) => String(a)) : [];
+  const res = await buffered(bin, args, 15000);
+  return { ok: Boolean(res?.ok), text: `${String(res?.stdout || '')}${String(res?.stderr || '')}`.trim() };
+});
+
+// Login is interactive OAuth (opens the browser + a localhost callback), so we
+// spawn and STREAM its output to the renderer over the shared cliAgent:event
+// channel (tagged with a fresh runId) until the process exits.
+ipcMain.handle('cliAgent:authLogin', async (event, payload) => {
+  const bin = String(payload?.bin || '').trim();
+  if (!CLI_AGENT_ALLOWED_BINS.has(bin)) throw new Error('CLI_BIN_NOT_ALLOWED');
+  const args = Array.isArray(payload?.args) ? payload.args.map((a) => String(a)) : [];
+  const runId = String(payload?.runId || '') || crypto.randomUUID();
+  const launcher = resolveCliLauncher(bin);
+
+  const wc = event.sender;
+  const send = (msg) => { try { if (!wc.isDestroyed()) wc.send('cliAgent:event', { runId, ...msg }); } catch (_) {} };
+
+  const child = spawn(launcher.command, args, {
+    cwd: process.cwd(),
+    windowsHide: true,
+    shell: launcher.useShell,
+    env: buildToolEnv(),
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  activeCliAgentRuns.set(runId, child);
+
+  const onData = (chunk) => {
+    String(chunk).split(/\r?\n/).forEach((line) => { if (line.trim()) send({ kind: 'line', line }); });
+  };
+  child.stdout.on('data', onData);
+  child.stderr.on('data', onData);
+  child.on('error', (err) => { activeCliAgentRuns.delete(runId); send({ kind: 'spawnError', message: err?.message || String(err) }); });
+  child.on('close', (code) => { activeCliAgentRuns.delete(runId); send({ kind: 'close', code: Number.isFinite(code) ? code : -1 }); });
+
+  return { ok: true, runId };
+});
+
+// --- Subscription usage windows (5h + weekly) for the active CLI line ----------
+// Reads the local credential file + GETs the provider's PRIVATE usage endpoint
+// (verified live 2026-06-30). Anthropic OAuth subscription → /api/oauth/usage;
+// Codex ChatGPT → /backend-api/codex/usage (needs OpenAI-Beta: responses=experimental
+// or Cloudflare 403s the call). Domestic Claude-compatible presets (custom
+// ANTHROPIC_BASE_URL + their own token) are NOT Anthropic-subscription → no endpoint.
+// Everything degrades to { ok:false } so the UI simply hides the gauge. The request
+// is read-only and uses the user's own already-stored token (the same call the CLI
+// makes for /usage); these endpoints are private/undocumented and may change.
+function cliUsageHttpGetJson(urlStr, headers, timeoutMs = 6000) {
+  return new Promise((resolve) => {
+    let url;
+    try { url = new URL(urlStr); } catch (_) { resolve({ ok: false, status: 0 }); return; }
+    let req;
+    try {
+      req = https.request(url, { method: 'GET', headers }, (res) => {
+        let body = '';
+        res.on('data', (c) => { body += c; if (body.length > 1_000_000) { try { req.destroy(); } catch (_) {} } });
+        res.on('end', () => {
+          let json = null;
+          try { json = JSON.parse(body); } catch (_) {}
+          resolve({ ok: res.statusCode === 200 && json != null, status: res.statusCode || 0, json });
+        });
+      });
+    } catch (_) { resolve({ ok: false, status: 0 }); return; }
+    req.on('error', () => resolve({ ok: false, status: 0 }));
+    req.setTimeout(timeoutMs, () => { try { req.destroy(); } catch (_) {} resolve({ ok: false, status: 0 }); });
+    req.end();
+  });
+}
+
+function cliReadJsonFileSafe(p) {
+  try { return JSON.parse(fsSync.readFileSync(p, 'utf8')); } catch (_) { return null; }
+}
+
+async function fetchAnthropicUsageWindows() {
+  const cred = cliReadJsonFileSafe(path.join(os.homedir(), '.claude', '.credentials.json'));
+  const token = cred?.claudeAiOauth?.accessToken;
+  if (!token) return { ok: false, reason: 'no-token' };
+  const r = await cliUsageHttpGetJson('https://api.anthropic.com/api/oauth/usage', {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json',
+    'anthropic-beta': 'oauth-2025-04-20',
+    'anthropic-version': '2023-06-01',
+  });
+  if (!r.ok) return { ok: false, status: r.status };
+  const j = r.json || {};
+  const win = (w) => (w && typeof w === 'object'
+    ? { percent: Math.round(Number(w.utilization) || 0), resetAt: Date.parse(w.resets_at) || 0 }
+    : null);
+  return { ok: true, source: 'claude', fiveHour: win(j.five_hour), weekly: win(j.seven_day) };
+}
+
+async function fetchCodexUsageWindows() {
+  const home = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
+  const auth = cliReadJsonFileSafe(path.join(home, 'auth.json'));
+  const token = auth?.tokens?.access_token;
+  const accountId = auth?.tokens?.account_id;
+  if (!token || !accountId) return { ok: false, reason: 'no-token' };
+  const r = await cliUsageHttpGetJson('https://chatgpt.com/backend-api/codex/usage', {
+    Authorization: `Bearer ${token}`,
+    'chatgpt-account-id': accountId,
+    'User-Agent': 'codex_cli_rs',
+    originator: 'codex_cli_rs',
+    Accept: 'application/json',
+    'OpenAI-Beta': 'responses=experimental',
+  });
+  if (!r.ok) return { ok: false, status: r.status };
+  const rl = r.json?.rate_limit;
+  if (!rl || typeof rl !== 'object') return { ok: false, status: r.status };
+  const win = (w) => (w && typeof w === 'object'
+    ? { percent: Math.round(Number(w.used_percent) || 0), resetAt: (Number(w.reset_at) || 0) * 1000 }
+    : null);
+  return { ok: true, source: 'codex', fiveHour: win(rl.primary_window), weekly: win(rl.secondary_window) };
+}
+
+ipcMain.handle('cliAgent:usageWindows', async (_event, payload) => {
+  try {
+    const driver = String(payload?.driver || '').trim();
+    if (driver === 'codex') return await fetchCodexUsageWindows();
+    if (driver === 'claude-code') {
+      // Only the genuine Anthropic subscription exposes /api/oauth/usage; domestic
+      // Claude-compatible presets (custom base URL + own token) do not.
+      if (payload?.hasBaseUrlOverride) return { ok: false, reason: 'unsupported-backend' };
+      return await fetchAnthropicUsageWindows();
+    }
+    return { ok: false, reason: 'unsupported-backend' };
+  } catch (_) {
+    return { ok: false };
+  }
+});
+
+// Stop a CLI run. On Windows the child may be a cmd.exe shell wrapper (the codex
+// npm `.cmd` shim runs under shell:true), whose real worker (node → codex.exe) is
+// a GRANDCHILD — child.kill() would only kill the wrapper and leave codex.exe
+// running, so the UI "stop" silently does nothing. taskkill /T kills the whole
+// process tree, /F forces it. Claude (a real .exe, shell:false) is fine either way
+// but tree-killing is harmless there too (also reaps any tool subprocesses).
+function killCliRun(child) {
+  if (!child) return;
+  const pid = child.pid;
+  if (process.platform === 'win32' && pid) {
+    try { spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true }); } catch (_) { /* fall through to kill() */ }
+  }
+  try { child.kill(); } catch (_) { /* already gone */ }
+}
+
+ipcMain.handle('cliAgent:cancel', async (_event, payload) => {
+  const runId = String(payload?.runId || '');
+  const child = activeCliAgentRuns.get(runId);
+  if (!child) return { ok: false, reason: 'not-found' };
+  killCliRun(child);
+  return { ok: true };
+});
+
+ipcMain.handle('cliAgent:start', async (event, payload) => {
+  const bin = String(payload?.bin || '').trim();
+  if (!CLI_AGENT_ALLOWED_BINS.has(bin)) throw new Error('CLI_BIN_NOT_ALLOWED');
+  const cwd = String(payload?.cwd || '').trim();
+  if (!cwd) throw new Error('MISSING_CWD');
+  // The agent's cwd may be a per-agent subdir; the mindmap MCP must still be
+  // scoped to the real project root. Falls back to cwd for older callers.
+  const projectRoot = String(payload?.projectRoot || cwd).trim();
+  // Ensure the (possibly per-agent) working dir exists before spawning.
+  try { fsSync.mkdirSync(cwd, { recursive: true }); } catch (_) { /* spawn will surface a real failure */ }
+
+  const args = Array.isArray(payload?.args) ? payload.args.map((a) => String(a)) : [];
+  const extraEnv = payload?.env && typeof payload.env === 'object' ? payload.env : {};
+  const stdinInput = typeof payload?.stdin === 'string' ? payload.stdin : '';
+  const runId = String(payload?.runId || '') || crypto.randomUUID();
+
+  // Mindmap MCP (Phase 4a): point the CLI (an MCP client) at ANGEL's read-only
+  // stdio server so the sub-agent can see the graph. The server runs under
+  // Electron's bundled Node (ELECTRON_RUN_AS_NODE) → no external `node` needed.
+  // We don't pass --strict-mcp-config, so the user's own .mcp.json still loads.
+  let mcpConfigPath = '';
+  let mcpRunToken = ''; // per-run bridge token (bound to this run's agentId); freed on close
+  if (payload?.attachMindmapMcp && bin === 'claude') {
+    try {
+      // Bring up the localhost bridge so the server runs in LIVE (bridge) mode —
+      // tools route to the renderer's real graph functions (Phase 4b). If this
+      // throws, the catch below leaves the run without the mindmap MCP.
+      const bridge = await ensureMcpBridge();
+      mcpRunToken = registerBridgeRun(bridge, payload?.agentId);
+      const serverPath = path.join(__dirname, 'mcp', 'angel-mcp-server.cjs');
+      const cfg = {
+        mcpServers: {
+          angel: {
+            command: process.execPath,
+            args: [serverPath],
+            env: {
+              ELECTRON_RUN_AS_NODE: '1',
+              ANGEL_PROJECT_ROOT: projectRoot,
+              ANGEL_BRIDGE_URL: `http://127.0.0.1:${bridge.port}`,
+              // Per-run token → the bridge resolves this run's agentId from it.
+              ANGEL_BRIDGE_TOKEN: mcpRunToken,
+            },
+          },
+        },
+      };
+      mcpConfigPath = path.join(os.tmpdir(), `angel-mcp-${crypto.randomUUID()}.json`);
+      fsSync.writeFileSync(mcpConfigPath, JSON.stringify(cfg), 'utf-8');
+      // Server-level allow auto-approves every angel tool (works with acceptEdits).
+      args.push('--mcp-config', mcpConfigPath, '--allowedTools', 'mcp__angel');
+    } catch (_) {
+      // If the config can't be written, run without the mindmap rather than fail.
+      mcpConfigPath = '';
+    }
+  } else if (payload?.attachMindmapMcp && bin === 'codex' && args.includes('--dangerously-bypass-approvals-and-sandbox')) {
+    // Codex injects MCP via a profile config file (its `-c` TOML overrides would
+    // be mangled by the .cmd shell on Windows). The profile lives in the real
+    // CODEX_HOME so auth stays intact; paths are forward-slashed to dodge TOML
+    // backslash escapes. Same bridge + server as Claude → full read+write mindmap.
+    // Gated on the bypass flag: under workspace-write, non-interactive MCP tool
+    // calls would be blocked, so we skip the mindmap rather than half-wire it.
+    try {
+      const bridge = await ensureMcpBridge();
+      mcpRunToken = registerBridgeRun(bridge, payload?.agentId);
+      const serverPath = path.join(__dirname, 'mcp', 'angel-mcp-server.cjs');
+      const fwd = (p) => String(p).replace(/\\/g, '/');
+      const profileName = `angel-mcp-${crypto.randomUUID()}`;
+      const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
+      const toml = [
+        '[mcp_servers.angel]',
+        `command = "${fwd(process.execPath)}"`,
+        `args = ["${fwd(serverPath)}"]`,
+        '',
+        '[mcp_servers.angel.env]',
+        'ELECTRON_RUN_AS_NODE = "1"',
+        `ANGEL_PROJECT_ROOT = "${fwd(projectRoot)}"`,
+        `ANGEL_BRIDGE_URL = "http://127.0.0.1:${bridge.port}"`,
+        // Per-run token → the bridge resolves this run's agentId from it.
+        `ANGEL_BRIDGE_TOKEN = "${mcpRunToken}"`,
+        '',
+      ].join('\n');
+      mcpConfigPath = path.join(codexHome, `${profileName}.config.toml`);
+      fsSync.mkdirSync(codexHome, { recursive: true });
+      fsSync.writeFileSync(mcpConfigPath, toml, 'utf-8');
+      // codex options must precede the trailing stdin-prompt positional ('-').
+      if (args[args.length - 1] === '-') args.splice(args.length - 1, 0, '--profile', profileName);
+      else args.push('--profile', profileName);
+    } catch (_) {
+      mcpConfigPath = '';
+    }
+  }
+
+  const wc = event.sender;
+  const send = (msg) => {
+    try { if (!wc.isDestroyed()) wc.send('cliAgent:event', { runId, ...msg }); } catch (_) { /* window gone */ }
+  };
+
+  // Native .exe → shell:false (Node escapes argv); npm .cmd shim (codex) → shell:true.
+  const launcher = resolveCliLauncher(bin);
+  const child = spawn(launcher.command, args, {
+    cwd,
+    windowsHide: true,
+    shell: launcher.useShell,
+    env: { ...buildToolEnv(), ...extraEnv },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  activeCliAgentRuns.set(runId, child);
+
+  try { if (stdinInput) child.stdin.write(stdinInput); } catch (_) { /* race with early exit */ }
+  try { child.stdin.end(); } catch (_) { /* already closed */ }
+
+  let buf = '';
+  child.stdout.on('data', (chunk) => {
+    buf += String(chunk);
+    let nl;
+    while ((nl = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, nl).replace(/\r$/, '');
+      buf = buf.slice(nl + 1);
+      if (line.trim()) send({ kind: 'line', line });
+    }
+  });
+
+  let stderr = '';
+  child.stderr.on('data', (chunk) => { stderr += String(chunk); });
+
+  child.on('error', (err) => {
+    activeCliAgentRuns.delete(runId);
+    if (mcpRunToken) unregisterBridgeRun(mcpBridge, mcpRunToken);
+    send({ kind: 'spawnError', message: err?.message || String(err) });
+  });
+
+  child.on('close', (code) => {
+    activeCliAgentRuns.delete(runId);
+    if (mcpConfigPath) { try { fsSync.unlinkSync(mcpConfigPath); } catch (_) { /* best effort */ } }
+    if (mcpRunToken) unregisterBridgeRun(mcpBridge, mcpRunToken); // free this run's bridge token
+    const tail = buf.trim();
+    if (tail) send({ kind: 'line', line: tail }); // flush any trailing partial line
+    send({ kind: 'close', code: Number.isFinite(code) ? code : -1, stderr: stderr.slice(-4000) });
+  });
+
+  return { ok: true, runId };
 });
 
 app.whenReady().then(() => {

@@ -156,6 +156,26 @@ test('restoreAgentSession returns false for an unknown agent', () => {
   assert.equal(mgr.restoreAgentSession('unknown', { canonical: { turns: [] } }), false);
 });
 
+test('truncateAgentTurns rolls UI + canonical back (first-turn retract) and never grows', () => {
+  const mgr = createAgentChatStateManager({ initialAgents: [{ id: 'a' }] });
+  // Simulate a first turn: one user turn + a partial assistant turn, plus UI bubbles.
+  mgr.appendCanonicalTurns('a', [{ role: 'user', text: 'oops typo' }, { role: 'assistant', text: 'partial' }]);
+  mgr.pushAgentMessage('a', 'user', 'oops typo', { skipCanonical: true });
+  mgr.pushAgentMessage('a', 'thinking', '...', { includeInContext: false });
+  assert.equal(mgr.state.canonicalByAgent.a.turns.length, 2);
+  assert.equal(mgr.state.messagesByAgent.a.length, 2);
+
+  // Retract back to the pre-turn lengths (0/0).
+  mgr.truncateAgentTurns('a', 0, 0);
+  assert.equal(mgr.state.canonicalByAgent.a.turns.length, 0);
+  assert.equal(mgr.state.messagesByAgent.a.length, 0);
+
+  // Never grows when asked for a length beyond current.
+  mgr.appendCanonicalTurns('a', [{ role: 'user', text: 'x' }]);
+  mgr.truncateAgentTurns('a', 99, 99);
+  assert.equal(mgr.state.canonicalByAgent.a.turns.length, 1);
+});
+
 test('getAgentTodos starts empty and setAgentTodos normalizes items', () => {
   const mgr = createAgentChatStateManager({ initialAgents: [{ id: 'a' }] });
   assert.deepEqual(mgr.getAgentTodos('a'), []);

@@ -106,6 +106,19 @@ export function createAgentChatStateManager({
     }
   }
 
+  // Roll the UI timeline + canonical transcript back to earlier lengths. Used to
+  // fully retract a turn (e.g. a first-turn user-stop = "as if never sent"): pass
+  // the lengths captured just before the turn was recorded. Never grows the arrays.
+  function truncateAgentTurns(agentId, uiLength, canonicalLength) {
+    const ui = state.messagesByAgent[agentId];
+    if (Array.isArray(ui) && ui.length > uiLength) ui.length = Math.max(0, uiLength | 0);
+    const canon = state.canonicalByAgent[agentId]?.turns;
+    if (Array.isArray(canon) && canon.length > canonicalLength) {
+      canon.length = Math.max(0, canonicalLength | 0);
+      state.canonicalByAgent[agentId] = { turns: canon };
+    }
+  }
+
   function pushAgentMessage(agentId, role, text, options = {}) {
     // UI-only message insertion. Canonical transcript writes must go through
     // explicit canonical/event APIs instead of this helper.
@@ -368,6 +381,7 @@ export function createAgentChatStateManager({
     getAgentTodos,
     setAgentTodos,
     resetAgentCanonical,
+    truncateAgentTurns,
     accumulateAgentTokenUsage,
     getAgentTokenUsage,
   };

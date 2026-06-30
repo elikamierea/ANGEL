@@ -23,12 +23,15 @@ import {
 import { createFileTreeUI } from './modules/ui/file-tree-ui.js';
 import { createInspectorUI } from './modules/ui/inspector-ui.js';
 import { createAgentChatUIShell } from './modules/agent/agent-chat-ui-shell.js';
+import { createCliAgentRuntime, normalizeSessionRecord } from './modules/agent/cli-agent-runtime.js';
+import { getCliAgentDriver, listCliAgentDrivers } from './modules/agent/cli-agent-drivers.js';
 import { createProjectIOController } from './modules/project/project-io-controller.js';
 import { createMenuShell } from './modules/ui/menu-shell.js';
 import { createAssetModalBindings } from './modules/ui/asset-modal-bindings.js';
 import { createAssetModalLifecycle } from './modules/ui/asset-modal-lifecycle.js';
 import { createAssetGeneration } from './modules/ui/asset-generation.js';
 import { createRunTestModalController } from './modules/ui/run-test-modal-controller.js';
+import { createCliMemorySeedModalController } from './modules/ui/cli-memory-seed-modal-controller.js';
 import { createAppShellUI } from './modules/ui/app-shell-ui.js';
 import { createGraphDomain } from './modules/graph/graph-domain.js';
 import { createGraphGeometry } from './modules/graph/graph-geometry.js';
@@ -209,6 +212,15 @@ const languageFontSelect = document.getElementById('language-font-select');
 const languageClose = document.getElementById('language-close');
 const languageCancel = document.getElementById('language-cancel');
 const languageSave = document.getElementById('language-save');
+const agentModelBackend = document.getElementById('agent-model-backend');
+const agentModelHttpFields = document.getElementById('agent-model-http-fields');
+const agentModelCliTokenRow = document.getElementById('agent-model-cli-token-row');
+const agentModelCliToken = document.getElementById('agent-model-cli-token');
+const agentModelCliAuth = document.getElementById('agent-model-cli-auth');
+const agentModelCliAuthStatus = document.getElementById('agent-model-cli-auth-status');
+const agentModelCliLogin = document.getElementById('agent-model-cli-login');
+const agentModelCliLogout = document.getElementById('agent-model-cli-logout');
+const agentModelCliAuthLog = document.getElementById('agent-model-cli-auth-log');
 const agentModelProvider = document.getElementById('agent-model-provider');
 const agentModelMethod = document.getElementById('agent-model-method');
 const agentModelName = document.getElementById('agent-model-name');
@@ -1793,6 +1805,46 @@ const DEFAULT_AGENT_MAX_LOOP_ROUNDS = 50;
 // Cumulative tool-call round budget for the whole "run until todos done" loop.
 const DEFAULT_AGENT_TODO_LOOP_MAX_ROUNDS = 100;
 
+// Built-in CLI sub-agent profiles (the second model-interaction line). The
+// subscription profile passes no env; domestic Claude-compatible providers are
+// reached purely by env override (base URL + token the user fills in). Base URLs
+// are best-known presets and are user-editable. `activeCliProfileId === ''` means
+// the API-key (HTTP) line is active; a non-empty id selects a CLI profile.
+const BUILTIN_CLI_PROFILES = [
+  { id: 'claude-sub', driver: 'claude-code', label: 'Claude Code (subscription)', model: '', env: {} },
+  { id: 'kimi-k2', driver: 'claude-code', label: 'Kimi K2', model: '', env: { ANTHROPIC_BASE_URL: 'https://api.moonshot.ai/anthropic', ANTHROPIC_AUTH_TOKEN: '' } },
+  { id: 'glm', driver: 'claude-code', label: 'GLM (z.ai)', model: '', env: { ANTHROPIC_BASE_URL: 'https://api.z.ai/api/anthropic', ANTHROPIC_AUTH_TOKEN: '' } },
+  { id: 'deepseek', driver: 'claude-code', label: 'DeepSeek', model: '', env: { ANTHROPIC_BASE_URL: 'https://api.deepseek.com/anthropic', ANTHROPIC_AUTH_TOKEN: '' } },
+  // Codex uses the ChatGPT subscription (codex login); no env override.
+  { id: 'codex-sub', driver: 'codex', label: 'Codex (ChatGPT)', model: '', env: {} },
+];
+
+function normalizeCliProfile(p) {
+  return {
+    id: String(p.id || ''),
+    driver: String(p.driver || 'claude-code'),
+    label: String(p.label || p.id || ''),
+    model: String(p.model || ''),
+    env: (p.env && typeof p.env === 'object') ? { ...p.env } : {},
+    ...(Array.isArray(p.extraArgs) ? { extraArgs: p.extraArgs.map(String) } : {}),
+  };
+}
+
+// Keep the user's saved profiles (their edited tokens) AND append any built-in
+// preset they don't have yet — so newly-shipped presets (e.g. Codex) appear for
+// users with existing saved settings instead of being shadowed by the old list.
+function cloneCliProfiles(list) {
+  const provided = (Array.isArray(list) ? list : [])
+    .filter((p) => p && typeof p === 'object')
+    .map(normalizeCliProfile)
+    .filter((p) => p.id);
+  const have = new Set(provided.map((p) => p.id));
+  for (const builtin of BUILTIN_CLI_PROFILES) {
+    if (!have.has(builtin.id)) provided.push(normalizeCliProfile(builtin));
+  }
+  return provided.length ? provided : BUILTIN_CLI_PROFILES.map(normalizeCliProfile);
+}
+
 function getDefaultAgentModelSettings() {
   const providers = {};
   AGENT_MODEL_CATALOG.forEach((item) => {
@@ -1820,6 +1872,8 @@ function getDefaultAgentModelSettings() {
     maxLoopRounds: DEFAULT_AGENT_MAX_LOOP_ROUNDS,
     todoLoopMaxRounds: DEFAULT_AGENT_TODO_LOOP_MAX_ROUNDS,
     providers,
+    cliProfiles: cloneCliProfiles(BUILTIN_CLI_PROFILES),
+    activeCliProfileId: '',
   };
 }
 
@@ -1866,6 +1920,8 @@ function normalizeAgentModelSettings(parsed) {
     maxLoopRounds: Math.max(1, Math.floor(Number(parsed?.maxLoopRounds)) || DEFAULT_AGENT_MAX_LOOP_ROUNDS),
     todoLoopMaxRounds: Math.max(1, Math.floor(Number(parsed?.todoLoopMaxRounds)) || DEFAULT_AGENT_TODO_LOOP_MAX_ROUNDS),
     providers,
+    cliProfiles: cloneCliProfiles(parsed?.cliProfiles),
+    activeCliProfileId: String(parsed?.activeCliProfileId || ''),
   };
 }
 
@@ -1880,6 +1936,15 @@ const agentModelSettingsController = createAgentModelSettingsController({
   t,
   dom: {
     agentModelModal,
+    agentModelBackend,
+    agentModelHttpFields,
+    agentModelCliTokenRow,
+    agentModelCliToken,
+    agentModelCliAuth,
+    agentModelCliAuthStatus,
+    agentModelCliLogin,
+    agentModelCliLogout,
+    agentModelCliAuthLog,
     agentModelProvider,
     agentModelMethod,
     agentModelName,
@@ -1905,7 +1970,9 @@ const agentModelSettingsController = createAgentModelSettingsController({
     agentModelSave,
   },
   setStatus,
+  resolveCliAuthTarget,
   onSettingsSaved: () => { try { _syncContextLimitFromModelImpl(); } catch (_) {} },
+  onCliBackendSwitched,
 });
 
 const hydrateAgentModelSettings = () => agentModelSettingsController.hydrateSettings();
@@ -2028,6 +2095,109 @@ const AGENT_FUNCTIONS = createAgentFunctions({
 });
 window.AGENT_FUNCTIONS = AGENT_FUNCTIONS;
 
+// === Mindmap MCP dispatch (Phase 4b) =======================================
+// Main relays a CLI sub-agent's graph tool call here (via the localhost bridge);
+// we run it against the LIVE graph and reply. This renderer is the single source
+// of truth for both the exposed tool schemas and their execution. Only the curated
+// graph/canvas tools are reachable — never the CLI's native file/bash tools.
+const MCP_GRAPH_TOOLS = new Set([
+  'list_node', 'list_empty_node', 'get_node_detail', 'grep_node',
+  'create_node', 'create_edge', 'create_mirror',
+  'update_node', 'update_edge', 'delete_node', 'delete_edge',
+  'arrange', 'auto_layout',
+]);
+// NOTE: get_mindmap (a whole-graph dump) is intentionally NOT exposed as an MCP
+// tool. The graph-reading design is overview-first-then-detail to avoid context
+// bloat: agents use list_node (compact per-layer hierarchy + synopsis) → grep_node
+// → get_node_detail, the SAME incremental pattern the HTTP line uses. The live
+// overview builder (buildLiveMindmapOverview) is kept only for the deferred Codex
+// non-bypass prompt-injection idea, not as a callable tool.
+// Per-agent task list, exposed so CLI agents (whose native TodoWrite is absent in
+// headless mode) can still keep a visible, ANGEL-owned todo list. todo_write comes
+// from the shared agent schemas; todo_read is MCP-only (defined inline). Both route
+// to the calling agent via the per-call agentId threaded through the bridge.
+const MCP_TODO_TOOLS = new Set(['todo_write', 'todo_read']);
+// Project build/run, exposed so CLI agents can compile/run the project through
+// ANGEL's own desktop Execute chain (the topbar Compile/Run pipeline) and get the
+// result back. NOT run_command — the CLI has native shell for generic commands;
+// these are the project-specific toolchain the CLI can't invoke on its own.
+const MCP_BUILD_TOOLS = new Set(['compile_project', 'run_project']);
+const MCP_TODO_READ_SCHEMA = {
+  name: 'todo_read',
+  description: 'Read your current task-tracking todo list (the items you last set with todo_write). Returns the full list, each with content and status. Call it to recall your plan and progress — especially at the start of a run or after resuming, since the list persists across turns.',
+  inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+};
+
+// Live whole-graph overview (mirrors the 4a disk projection, but from live state).
+// No longer exposed as the get_mindmap MCP tool (removed to keep graph reading
+// overview-first-then-detail). Retained only for the deferred Codex non-bypass
+// prompt-injection idea; harmless if unused.
+function buildLiveMindmapOverview() {
+  const layers = Array.isArray(state?.projectTemplate?.layers) ? state.projectTemplate.layers.map(String) : [];
+  const projectOne = (n) => {
+    const perLayer = {};
+    const lc = (n && n.layerContent && typeof n.layerContent === 'object') ? n.layerContent : {};
+    for (const lid of layers) {
+      const item = lc[lid] || {};
+      perLayer[lid] = {
+        synopsis: String(item.synopsis || item.summary || ''),
+        detail: String(item.detail || ''),
+        status: String(item.status || n?.status || 'active'),
+      };
+    }
+    return { id: String(n?.id || ''), name: String(n?.name || ''), x: Number(n?.x) || 0, y: Number(n?.y) || 0, parentId: n?.parentId ? String(n.parentId) : null, perLayer };
+  };
+  return {
+    project: state.projectName || 'untitled',
+    layers,
+    nodeCount: nodes.length,
+    edgeCount: edges.length,
+    nodes: nodes.map(projectOne),
+    edges: edges.map((e) => ({ from: String(e?.from || ''), to: String(e?.to || ''), kind: String(e?.kind || '') })),
+    containmentRelations,
+    mirrorRelations,
+  };
+}
+
+if (electronAPI?.angelMcp?.onInvoke) {
+  electronAPI.angelMcp.onInvoke(async (payload) => {
+    const op = String(payload?.op || '');
+    if (op === 'list') {
+      const schemas = getToolSchemasByAgent('designer') || [];
+      const tools = [MCP_TODO_READ_SCHEMA];
+      for (const s of schemas) {
+        const fn = (s && s.function) ? s.function : s;
+        if (fn && (MCP_GRAPH_TOOLS.has(fn.name) || MCP_TODO_TOOLS.has(fn.name) || MCP_BUILD_TOOLS.has(fn.name))) {
+          tools.push({
+            name: fn.name,
+            description: String(fn.description || ''),
+            inputSchema: fn.parameters || { type: 'object', properties: {} },
+          });
+        }
+      }
+      return tools;
+    }
+    if (op === 'call') {
+      const tool = String(payload?.tool || '');
+      const args = payload?.args || {};
+      // Route per-agent tools (todo) to the CALLING agent, not whichever agent the
+      // UI is focused on — agentId is threaded from the run through the bridge.
+      const agentId = String(payload?.agentId || '') || agentChatState.activeAgentId;
+      if (tool === 'todo_read') {
+        const todos = agentChatStateManager.getAgentTodos(agentId) || [];
+        return { todos };
+      }
+      if (!MCP_GRAPH_TOOLS.has(tool) && !MCP_TODO_TOOLS.has(tool) && !MCP_BUILD_TOOLS.has(tool)) throw new Error(`Tool not allowed via MCP: ${tool}`);
+      const fn = AGENT_FUNCTIONS[tool];
+      if (typeof fn !== 'function') throw new Error(`Unknown tool: ${tool}`);
+      const result = await fn(args, { agentId });
+      // Normalize to a plain, structured-clone-safe value for the IPC reply.
+      try { return JSON.parse(JSON.stringify(result ?? null)); } catch (_) { return String(result ?? ''); }
+    }
+    throw new Error(`Unknown MCP op: ${op}`);
+  });
+}
+
 // Each value maps directly to a prompt folder under ../prompts/agents/<profile>.
 const KNOWN_PROMPT_PROFILES = new Set(['full', 'minimized', 'full-image', 'minimized-image']);
 
@@ -2076,8 +2246,39 @@ const AGENT_HUMANIZE_FILE_BY_ID = {
 const SAVE_MEMORY_PROMPT_PATH = '../prompts/memory/save-memory.prompt.md';
 const SAVE_RECENT_MEMORY_PROMPT_PATH = '../prompts/memory/save-recent-memory.prompt.md';
 
+// When a project folder is open, the agent system prompt is sourced from a
+// runtime-editable, per-project file: <projectRoot>/agents/<agent>/prompt.md
+// (seeded from the hardcoded prompts at project creation). Returns '' when no
+// project is open or the file is missing, so the runtime falls back to the
+// hardcoded prompt fetched via getAgentPromptFileById.
+async function loadProjectAgentPrompt(agentId) {
+  const hasOpenProject = Boolean((electronAPI && state.projectRootPath) || state.currentProjectDirHandle);
+  if (!hasOpenProject) return '';
+
+  const canonicalId = normalizeAgentId(agentId);
+  const folderName = AGENT_MEMORY_FOLDER_BY_ID[canonicalId] || canonicalId;
+  if (!folderName) return '';
+
+  const relPath = `agents/${folderName}/prompt.md`;
+  try {
+    const parts = [];
+    let offset = 1;
+    for (let i = 0; i < 50; i += 1) {
+      const result = await toolReadByParams({ path: relPath, offset, limit: AGENT_MEMORY_READ_LIMIT });
+      parts.push(typeof result?.content === 'string' ? result.content : '');
+      if (!result?.truncated || !result?.nextOffset) break;
+      offset = result.nextOffset;
+    }
+    return parts.join('\n');
+  } catch (_) {
+    // File absent (or unreadable) -> fall back to the hardcoded prompt.
+    return '';
+  }
+}
+
 const agentRuntime = createAgentRuntime({
   promptFileById: getAgentPromptFileById,
+  loadProjectAgentPrompt,
   suffixFileById: AGENT_SUFFIX_FILE_BY_ID,
   humanizeFileById: AGENT_HUMANIZE_FILE_BY_ID,
   getAgentToolSchemas: (agentId) => getToolSchemasByAgent(normalizeAgentId(agentId)),
@@ -2095,6 +2296,259 @@ const agentRuntime = createAgentRuntime({
 });
 
 const requestDefaultModelCompletion = agentRuntime.requestDefaultModelCompletion;
+
+// === CLI sub-agent line wiring ============================================
+// Second model-interaction line. `requestAgentCompletion` dispatches each
+// request to either the CLI runtime (when a CLI profile is active) or the
+// existing HTTP runtime (the API-key fallback line). The two share the same
+// params/callback/reply contract, so the chat UI is agnostic to which ran.
+function getCliProfiles() {
+  const list = loadAgentModelSettings()?.cliProfiles;
+  return Array.isArray(list) && list.length ? list : BUILTIN_CLI_PROFILES;
+}
+function getActiveCliProfileId() {
+  return String(loadAgentModelSettings()?.activeCliProfileId || '');
+}
+function isCliBackendActive() {
+  return Boolean(getActiveCliProfileId());
+}
+function resolveActiveCliProfile() {
+  const id = getActiveCliProfileId();
+  if (!id) return null;
+  return getCliProfiles().find((p) => p && p.id === id) || null;
+}
+
+// Context for the subscription-usage gauge (5h/weekly). Only the genuine Anthropic
+// subscription (claude-code driver with NO custom ANTHROPIC_BASE_URL) and Codex
+// expose a usable endpoint → `supported:true`. Domestic Claude-compatible presets
+// (custom base URL) and the HTTP line are NOT supported → the UI falls back to the
+// raw token-usage rows instead of the window gauge.
+function getCliUsageContext() {
+  const profile = resolveActiveCliProfile();
+  if (!profile) return { supported: false };
+  const env = profile.env && typeof profile.env === 'object' ? profile.env : {};
+  const hasBaseUrlOverride = Boolean(String(env.ANTHROPIC_BASE_URL || '').trim());
+  const driver = String(profile.driver || '');
+  const supported = driver === 'codex' || (driver === 'claude-code' && !hasBaseUrlOverride);
+  return { supported, driver, hasBaseUrlOverride };
+}
+async function fetchCliUsageWindows() {
+  const ctx = getCliUsageContext();
+  if (!ctx.supported || !electronAPI?.cliAgent?.usageWindows) return { ok: false };
+  try {
+    return await electronAPI.cliAgent.usageWindows({ driver: ctx.driver, hasBaseUrlOverride: ctx.hasBaseUrlOverride });
+  } catch (_) {
+    return { ok: false };
+  }
+}
+
+// For the settings auth buttons: a profile's driver bin + its auth subcommands,
+// or null when the driver has no OAuth login (e.g. token-based domestic profiles).
+function resolveCliAuthTarget(profileId) {
+  const profile = getCliProfiles().find((p) => p && p.id === profileId);
+  if (!profile) return null;
+  const driver = getCliAgentDriver(profile.driver);
+  if (!driver || !driver.bin || !driver.auth) return null;
+  return { bin: driver.bin, auth: driver.auth };
+}
+
+function cliSessionRelPath(agentId) {
+  const id = normalizeAgentId(agentId);
+  const folder = AGENT_MEMORY_FOLDER_BY_ID[id] || id;
+  return `agents/${folder}/cli-session.json`;
+}
+
+// Per-agent working dir (absolute): each parallel agent runs here so it gets an
+// isolated CLI session + per-agent native memory (cwd file = private, project-root
+// file = shared, both auto-loaded). The project is reachable via --add-dir.
+function getAgentWorkdir(agentId) {
+  const root = String(state.projectRootPath || '');
+  if (!root) return '';
+  const id = normalizeAgentId(agentId);
+  const folder = AGENT_MEMORY_FOLDER_BY_ID[id] || id;
+  return `${root}/agents/${folder}`;
+}
+async function loadCliSession(agentId) {
+  if (!agentId) return null;
+  try {
+    const r = await toolReadByParams({ path: cliSessionRelPath(agentId), limit: AGENT_MEMORY_READ_LIMIT });
+    const obj = JSON.parse(String(r?.content || ''));
+    return obj && typeof obj === 'object' ? obj : null;
+  } catch (_) {
+    return null;
+  }
+}
+// Per-profile read-modify-write: keep other profiles' pointers, update this one,
+// and mark it the most-recently-used (for the switch note).
+async function saveCliSession(agentId, profileId, entry) {
+  if (!agentId || !profileId || !entry) return;
+  try {
+    const record = normalizeSessionRecord(await loadCliSession(agentId));
+    record.byProfile[profileId] = entry;
+    record.lastProfileId = profileId;
+    await toolWriteByParams({ path: cliSessionRelPath(agentId), content: JSON.stringify(record, null, 2) });
+  } catch (_) {
+    // Display-projection metadata; a write failure must not break the run.
+  }
+}
+
+function formatSeedBytes(n) {
+  const v = Number(n) || 0;
+  if (v < 1024) return `${v} B`;
+  return `${(v / 1024).toFixed(1)} KB`;
+}
+function formatSeedMtime(ms) {
+  const v = Number(ms) || 0;
+  if (!v) return '';
+  try { return new Date(v).toLocaleString(); } catch (_) { return ''; }
+}
+
+// Fired from the model-settings save when the active CLI profile changes. Always
+// shows ONE dialog announcing the switch and offering to copy existing memory into
+// the new source's native files across ALL agents + the shared root, or continue
+// (keep current). A candidate source is offered when its content DIFFERS from the
+// target (target empty = fresh seed; target non-empty = the user can pick which
+// version → copying replaces it). Identical files are skipped. Returns
+// { action: 'none'|'empty'|'copy', fromLabel? }.
+async function resolveMemorySeedForSwitch(toProfileId, fromProfileId) {
+  try {
+    const toProfile = getCliProfiles().find((p) => p && p.id === toProfileId);
+    if (!toProfile) return { action: 'none' }; // not a CLI backend → no dialog
+    const targetFile = getCliAgentDriver(toProfile.driver)?.memoryFile || 'CLAUDE.md';
+    const sourceFiles = [...new Set(listCliAgentDrivers()
+      .map((driverKey) => getCliAgentDriver(driverKey)?.memoryFile)
+      .filter(Boolean))].filter((f) => f !== targetFile);
+
+    // Every agent's private dir + the shared project root.
+    const levels = [...Object.values(AGENT_MEMORY_FOLDER_BY_ID).map((f) => `agents/${f}/`), ''];
+
+    const readMeta = async (rel) => {
+      try {
+        const r = await toolReadByParams({ path: rel, limit: AGENT_MEMORY_READ_LIMIT });
+        return { content: String(r?.content || ''), size: Number(r?.size || 0), mtimeMs: Number(r?.mtimeMs || 0) };
+      } catch (_) { return { content: '', size: 0, mtimeMs: 0 }; }
+    };
+
+    const candidates = [];
+    for (const srcFile of sourceFiles) {
+      const copies = [];
+      let size = 0;
+      let mtimeMs = 0;
+      let replaces = 0;
+      for (const dir of levels) {
+        const source = await readMeta(`${dir}${srcFile}`);
+        if (!source.content.trim()) continue;                          // nothing to copy from
+        const target = await readMeta(`${dir}${targetFile}`);
+        if (source.content.trim() === target.content.trim()) continue; // already identical → skip
+        if (target.content.trim()) replaces += 1;                      // differs from existing → would replace
+        copies.push({ toRel: `${dir}${targetFile}`, content: source.content });
+        size += source.size;
+        mtimeMs = Math.max(mtimeMs, source.mtimeMs);
+      }
+      if (copies.length) {
+        const meta = [`${copies.length}×`, replaces ? `replace ${replaces}` : '', formatSeedBytes(size), formatSeedMtime(mtimeMs)]
+          .filter(Boolean).join(' · ');
+        candidates.push({ srcFile, label: `${srcFile} · ${meta}`, copies });
+      }
+    }
+
+    // Always show the dialog on a switch — even with no candidates — so the user is
+    // told the new source's sessions start fresh.
+    const choice = await cliMemorySeedModalController.requestMemorySeedChoice({
+      targetLabel: targetFile,
+      fromLabel: String(fromProfileId || ''),
+      candidates,
+    });
+    if (choice?.action === 'copy' && choice.candidate?.copies?.length) {
+      for (const c of choice.candidate.copies) {
+        try { await toolWriteByParams({ path: c.toRel, content: c.content }); } catch (_) {}
+      }
+      return { action: 'copy', seeded: true, fromLabel: choice.candidate.srcFile };
+    }
+    return { action: 'empty' };
+  } catch (_) {
+    return { action: 'empty' };
+  }
+}
+
+// Settings-save hook: the global active CLI profile changed from→to.
+async function onCliBackendSwitched(fromId, toId) {
+  if (!toId) return; // switched to an HTTP provider → no CLI switch dialog
+  try {
+    const result = await resolveMemorySeedForSwitch(toId, fromId);
+    if (result?.action === 'copy') {
+      try { setStatus(t('agentChat.notice.cliMemorySeeded', { from: String(result.fromLabel || '') })); } catch (_) {}
+    }
+  } catch (_) { /* best effort */ }
+}
+
+function extFromMime(mime) {
+  const m = String(mime || '').toLowerCase();
+  if (m.includes('jpeg') || m.includes('jpg')) return 'jpg';
+  if (m.includes('webp')) return 'webp';
+  if (m.includes('gif')) return 'gif';
+  return 'png';
+}
+async function writeCliImageAttachment(agentId, image) {
+  const dataUrl = String(image?.dataUrl || '');
+  const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/i);
+  if (!m) return '';
+  if (!(electronAPI?.toolWriteBinary && state.projectRootPath)) return '';
+  const ext = extFromMime(image?.mimeType || m[1]);
+  const uid = globalThis.crypto?.randomUUID?.() || `img_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  const rel = `.angel/attachments/${uid}.${ext}`;
+  await electronAPI.toolWriteBinary({ rootPath: state.projectRootPath, path: rel, base64: m[2] });
+  return rel;
+}
+
+const cliAgentRuntime = createCliAgentRuntime({
+  electronAPI,
+  getProjectRoot: () => state.projectRootPath || '',
+  resolveActiveCliProfile: () => resolveActiveCliProfile(),
+  getDangerouslySkipPermissions: () => {
+    try { return loadAgentModelSettings()?.dangerouslySkipPermissions === true; } catch (_) { return false; }
+  },
+  loadAppendSystemPrompt: async (agentId) => {
+    try { return await loadProjectAgentPrompt(agentId); } catch (_) { return ''; }
+  },
+  loadCliSession,
+  saveCliSession,
+  writeImageAttachment: writeCliImageAttachment,
+  getAgentWorkdir,
+  // Mirror a CLI agent's native todo/plan into ANGEL's per-agent todo panel.
+  // Called lazily (agentChatStateManager is defined later); per-agent so parallel
+  // agents each update their own list.
+  applyAgentTodos: (agentId, items) => {
+    try {
+      agentChatStateManager.setAgentTodos(agentId, items);
+      renderAgentTodoPanel();
+    } catch (_) { /* best effort */ }
+  },
+  // Surface a CLI agent's proposed plan (Claude ExitPlanMode) as a persistent,
+  // display-only note in its timeline. Plans are not replayed to the model.
+  showAgentPlan: (agentId, planText) => {
+    try {
+      const body = String(planText || '').trim();
+      if (!body) return;
+      pushAgentMessage(agentId, 'developer', `${t('agentChat.plan.header')}\n\n${body}`, { includeInContext: false });
+      renderAgentTimeline({ forceScrollBottom: true });
+    } catch (_) { /* best effort */ }
+  },
+  // Push a persistent, translated system note into an agent's timeline (e.g. source
+  // switched, session expired) so the UI doesn't imply continuity the new run won't have.
+  notifyAgent: (agentId, i18nKey, params = {}) => {
+    try {
+      pushAgentMessage(agentId, 'developer', formatSystemEventText(t(i18nKey, params)), { includeInContext: false });
+      renderAgentTimeline({ forceScrollBottom: true });
+    } catch (_) { /* best effort */ }
+  },
+});
+
+async function requestAgentCompletion(params) {
+  return isCliBackendActive()
+    ? cliAgentRuntime.requestCliAgentCompletion(params)
+    : requestDefaultModelCompletion(params);
+}
 
 async function loadPromptTextByPath(path) {
   const response = await fetch(path, { cache: 'no-cache' });
@@ -3416,6 +3870,15 @@ _resolveRunTestModalImpl = runTestModalController.resolveRunTestModal;
 _requestRunTestNameImpl = runTestModalController.requestRunTestName;
 _requestRunTestOptionsImpl = runTestModalController.requestRunTestOptions;
 
+const cliMemorySeedModalController = createCliMemorySeedModalController({
+  modal: document.getElementById('cli-memory-seed-modal'),
+  optionsContainer: document.getElementById('cli-memory-seed-options'),
+  messageEl: document.getElementById('cli-memory-seed-message'),
+  emptyBtn: document.getElementById('cli-memory-seed-empty'),
+  closeBtn: document.getElementById('cli-memory-seed-close'),
+  t,
+});
+
 menuAgentModel.addEventListener('click', () => {
   openAgentModelSettingsModal();
   closeAllMenus();
@@ -3875,7 +4338,11 @@ const agentChatUIShell = createAgentChatUIShell({
     agentChatImageLightboxImg,
     electronAPI,
   },
-  requestDefaultModelCompletion,
+  // Route the agent conversation through the dispatcher so a request runs on the
+  // CLI line or the HTTP line per the active profile. (Same name → no shell edits;
+  // context-compaction in app.js keeps calling requestDefaultModelCompletion, i.e.
+  // the HTTP line only, since compaction is the CLI's own job.)
+  requestDefaultModelCompletion: requestAgentCompletion,
   loadAgentModelSettings,
   setStatus,
   getContextLimitByModel,
@@ -3888,6 +4355,9 @@ const agentChatUIShell = createAgentChatUIShell({
   loadAgentMemoriesForActiveProject: (options = {}) => loadAgentMemoriesForActiveProject(options),
   AGENT_DEFAULT_CONTEXT_MAX_TOKENS,
   projectRootPathGetter: () => state.projectRootPath || '',
+  getCliUsageContext,
+  fetchCliUsageWindows,
+  isCliBackendActive,
   t,
   renderMarkdown: renderBasicMarkdownToHtml,
 });

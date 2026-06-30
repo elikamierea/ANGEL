@@ -24,6 +24,9 @@ export function createAgentChatUIShell(deps) {
     SAVE_MEMORY_PROMPT_PATH,
     SAVE_RECENT_MEMORY_PROMPT_PATH,
     AGENT_DEFAULT_CONTEXT_MAX_TOKENS,
+    getCliUsageContext = () => ({ active: false }),
+    fetchCliUsageWindows = async () => ({ ok: false }),
+    isCliBackendActive = () => false,
     t,
     renderMarkdown,
   } = deps;
@@ -107,6 +110,12 @@ export function createAgentChatUIShell(deps) {
 
   function syncRunUntilDoneButton() {
     if (!agentRunUntilDone) return;
+    // The "run until done" loop is an HTTP-harness feature (ANGEL drives the loop).
+    // CLI agents own their own loop/agency, so hide it entirely on the CLI line.
+    let cliActive = false;
+    try { cliActive = Boolean(isCliBackendActive()); } catch (_) {}
+    agentRunUntilDone.hidden = cliActive;
+    if (cliActive) return;
     const agentId = agentChatState.activeAgentId;
     const todos = typeof agentChatStateManager.getAgentTodos === 'function'
       ? agentChatStateManager.getAgentTodos(agentId) : [];
@@ -267,6 +276,16 @@ export function createAgentChatUIShell(deps) {
     if (!agentCtxDisplay) return;
     const agentId = agentChatState.activeAgentId;
     const usage = agentChatState.contextUsageByAgent[agentId] || { used: 0, max: AGENT_DEFAULT_CONTEXT_MAX_TOKENS };
+    // CLI line: the CLI owns the context + its native compaction, so ANGEL knows
+    // neither the true size nor the limit. Show ONLY an estimated current context
+    // length (from the last turn's usage) — no limit, no percentage.
+    let cliActive = false;
+    try { cliActive = Boolean(isCliBackendActive()); } catch (_) {}
+    if (cliActive) {
+      const shown = usage.used > 0 ? `~${fmtTokens(usage.used)}` : '—';
+      agentCtxDisplay.textContent = t('agentChat.ctxBarEstimate', { used: shown });
+      return;
+    }
     // Display the auto-compact line (model limit × threshold) as the effective
     // ceiling, since reaching it triggers compaction. The stored `usage.max`
     // remains the raw model limit so the compaction trigger logic is unchanged.
@@ -687,8 +706,90 @@ export function createAgentChatUIShell(deps) {
     return String(Math.round(n));
   }
 
+  // Subscription-usage gauge cache (CLI line only). Fetched lazily from main and
+  // throttled so frequent re-renders (token deltas) don't hammer the endpoint.
+  let cliUsageWindows = null;        // last result { ok, source, fiveHour, weekly } | null
+  let cliUsageSourceKey = '';        // driver|baseUrlOverride the cache belongs to
+  let cliUsageFetchedAt = 0;
+  let cliUsageFetching = false;
+  const CLI_USAGE_TTL_MS = 60000;
+
+  function maybeRefreshCliUsage(ctx) {
+    const key = `${ctx.driver}|${ctx.hasBaseUrlOverride ? 1 : 0}`;
+    const stale = Date.now() - cliUsageFetchedAt > CLI_USAGE_TTL_MS;
+    if (cliUsageFetching) return;
+    if (key === cliUsageSourceKey && cliUsageWindows && !stale) return;
+    if (key !== cliUsageSourceKey) cliUsageWindows = null; // source changed → drop stale value
+    cliUsageFetching = true;
+    Promise.resolve(fetchCliUsageWindows())
+      .then((res) => { cliUsageWindows = res || { ok: false }; })
+      .catch(() => { cliUsageWindows = { ok: false }; })
+      .finally(() => {
+        cliUsageSourceKey = key;
+        cliUsageFetchedAt = Date.now();
+        cliUsageFetching = false;
+        renderAgentTokenStats(); // re-render with the fetched value (now non-stale → no loop)
+      });
+  }
+
+  function fmtUsageReset(ms) {
+    const n = Number(ms) || 0;
+    if (n <= 0) return '';
+    const d = new Date(n);
+    const sameDay = d.toDateString() === new Date().toDateString();
+    return sameDay
+      ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : d.toLocaleDateString([], { month: 'numeric', day: 'numeric' });
+  }
+
+  // One subscription window rendered as a spacious two-line block:
+  //   <label>           used X%
+  //                     HH:MM reset
+  function usageWindowBlock(label, w) {
+    if (!w || typeof w.percent !== 'number') {
+      return `<div class="usage-window"><div class="usage-window-head"><span class="usage-window-label">${label}</span><span class="usage-window-percent">—</span></div></div>`;
+    }
+    const warn = w.percent >= 80 ? ' token-stat-warn' : '';
+    const used = t('agentChat.usage.used', { percent: w.percent });
+    const reset = fmtUsageReset(w.resetAt);
+    const resetLine = reset
+      ? `<div class="usage-window-reset">${t('agentChat.usage.reset', { time: reset })}</div>`
+      : '';
+    return `<div class="usage-window">`
+      + `<div class="usage-window-head"><span class="usage-window-label">${label}</span>`
+      + `<span class="usage-window-percent${warn}">${used}</span></div>`
+      + resetLine
+      + `</div>`;
+  }
+
+  function usageNotice(text) {
+    return `<div class="usage-window"><div class="usage-window-head">`
+      + `<span class="usage-window-label">${t('agentChat.usage.label')}</span>`
+      + `<span class="usage-window-percent">${text}</span></div></div>`;
+  }
+
+  function renderCliUsageWindows(ctx) {
+    const u = cliUsageWindows;
+    if (!u) {
+      agentTokenStats.innerHTML = usageNotice('…');
+    } else if (u.ok !== true) {
+      agentTokenStats.innerHTML = usageNotice(t('agentChat.usage.unavailable'));
+    } else {
+      agentTokenStats.innerHTML = usageWindowBlock(t('agentChat.usage.fiveHour'), u.fiveHour)
+        + usageWindowBlock(t('agentChat.usage.weekly'), u.weekly);
+    }
+    maybeRefreshCliUsage(ctx);
+  }
+
   function renderAgentTokenStats() {
     if (!agentTokenStats) return;
+    // On a usage-window-capable CLI line (Claude OAuth subscription / Codex), raw
+    // token counts aren't meaningful → show the 5h/weekly windows. Domestic CLI
+    // presets and the HTTP line keep the raw token rows.
+    let ctx = { supported: false };
+    try { ctx = getCliUsageContext() || ctx; } catch (_) {}
+    if (ctx.supported) { renderCliUsageWindows(ctx); return; }
+
     const agentId = agentChatState.activeAgentId;
     const u = typeof agentChatStateManager.getAgentTokenUsage === 'function'
       ? agentChatStateManager.getAgentTokenUsage(agentId)
@@ -731,9 +832,15 @@ export function createAgentChatUIShell(deps) {
     setAgentStatus(targetAgentId, 'Organizing memory...');
 
     const runMemoryPass = async (instructionText) => {
-      recordDeveloperText(targetAgentId, formatSystemEventText(instructionText));
+      // CLI line: the agent's task comes from `prompt` (the resumed session has the
+      // conversation context), so send the save instruction there. HTTP line keeps
+      // its developer-turn + empty-prompt shape (no regression).
+      const cliActive = Boolean((typeof loadAgentModelSettings === 'function' ? loadAgentModelSettings() : null)?.activeCliProfileId);
+      if (!cliActive) {
+        recordDeveloperText(targetAgentId, formatSystemEventText(instructionText));
+      }
       const reply = await requestDefaultModelCompletion({
-        prompt: '',
+        prompt: cliActive ? instructionText : '',
         agentId: targetAgentId,
         suppressAggregatedFinalText: true,
         onProgress: (statusText, usageInfo) => {
@@ -783,8 +890,17 @@ export function createAgentChatUIShell(deps) {
       }
     };
 
-    await runMemoryPass(saveRecentMemoryPrompt);
-    await runMemoryPass(saveMemoryPrompt);
+    // CLI line stores memory in its native file (CLAUDE.md / AGENTS.md), so a
+    // single consolidation pass suffices; the HTTP line keeps its two-file
+    // (recent + root) flow.
+    const cliActiveForSave = Boolean((typeof loadAgentModelSettings === 'function' ? loadAgentModelSettings() : null)?.activeCliProfileId);
+    if (cliActiveForSave) {
+      const nativeSaveInstruction = '请把本次会话中需要长期保留的信息整理进你的项目记忆文件（CLAUDE.md；如果你运行在 Codex 环境则为 AGENTS.md），保留其中已有的内容，确保下一次会话能够无缝接续。至少记录：项目计划、已完成与进行中的工作、当前状态、下一步、关键决策与约束、需谨慎的事项、以及重要信息的所在位置。完成后只回复 SAVED。';
+      await runMemoryPass(nativeSaveInstruction);
+    } else {
+      await runMemoryPass(saveRecentMemoryPrompt);
+      await runMemoryPass(saveMemoryPrompt);
+    }
     setAgentStatus(targetAgentId, 'Idle');
     return { ok: true };
   }
@@ -1348,6 +1464,18 @@ export function createAgentChatUIShell(deps) {
       const targetAgentId = activeAgentId;
       const requestController = beginAgentRequest(targetAgentId);
       const outgoingImages = pendingImages.map((item) => ({ ...item }));
+      // First-turn detection + snapshot for a possible full retract on user-stop.
+      // "First turn" = no prior context (canonical empty); a user-initiated stop of
+      // it should be as-if-never-sent on BOTH lines: the CLI line never persists a
+      // first aborted turn, so we mirror that on the HTTP line by truncating the
+      // canonical user turn (+ any partial assistant) we're about to add, and revert
+      // the UI bubbles + composer. Continuation turns are left intact (they stay in
+      // context by design).
+      const canonLenBefore = Array.isArray(agentChatState.canonicalByAgent[targetAgentId]?.turns)
+        ? agentChatState.canonicalByAgent[targetAgentId].turns.length : 0;
+      const uiLenBefore = Array.isArray(agentChatState.messagesByAgent[targetAgentId])
+        ? agentChatState.messagesByAgent[targetAgentId].length : 0;
+      const wasFirstTurn = canonLenBefore === 0;
       recordUserText(targetAgentId, text || '', { images: outgoingImages });
       pendingImages.splice(0, pendingImages.length);
       renderPendingImagePreview();
@@ -1417,6 +1545,20 @@ export function createAgentChatUIShell(deps) {
         setAgentStatus(targetAgentId, 'Idle');
       } catch (error) {
         if (error?.name === 'AbortError') {
+          // Full retract of a first turn: drop the just-added UI bubbles + canonical
+          // turns and return the draft to the composer, so it's truly "never sent"
+          // (consistent across the CLI and HTTP lines). Continuation turns stay.
+          if (wasFirstTurn) {
+            if (typeof agentChatStateManager.truncateAgentTurns === 'function') {
+              agentChatStateManager.truncateAgentTurns(targetAgentId, uiLenBefore, canonLenBefore);
+            }
+            if (!String(agentChatInput.value || '').trim()) {
+              agentChatInput.value = text || '';
+              for (const img of outgoingImages) pendingImages.push(img);
+              renderPendingImagePreview();
+            }
+            renderAgentTimeline();
+          }
           setStatus(t('agentChat.notice.requestStopped'));
           setAgentStatus(targetAgentId, 'Idle');
           return;
@@ -1454,13 +1596,21 @@ export function createAgentChatUIShell(deps) {
         try {
           await runSaveMemoryForAgent(targetAgentId);
 
-          resetAgentChatSessionsForNewProject();
-          if (typeof deps?.loadAgentMemoriesForActiveProject === 'function') {
-            await deps.loadAgentMemoriesForActiveProject({
-              reason: 'save-memory-reload',
-              quiet: true,
-              preferSessionRestore: false,
-            });
+          // The reset + reload below re-injects the HTTP line's just-rewritten
+          // memory_root/recent files into the timeline. The CLI line keeps its
+          // memory in CLAUDE.md/AGENTS.md (loaded natively next run), so for it
+          // that reload only adds "[memory not found]" noise and a needless session
+          // reset — skip it and leave the live conversation as-is.
+          const cliActiveAfterSave = Boolean((typeof loadAgentModelSettings === 'function' ? loadAgentModelSettings() : null)?.activeCliProfileId);
+          if (!cliActiveAfterSave) {
+            resetAgentChatSessionsForNewProject();
+            if (typeof deps?.loadAgentMemoriesForActiveProject === 'function') {
+              await deps.loadAgentMemoriesForActiveProject({
+                reason: 'save-memory-reload',
+                quiet: true,
+                preferSessionRestore: false,
+              });
+            }
           }
 
           // Sync session.json to the post-compaction state so a restart before the

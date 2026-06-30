@@ -447,30 +447,6 @@ export const SHARED_AGENT_TOOL_SCHEMAS = [
   },
   {
     type: 'function',
-    name: 'read_skill',
-    description: 'Read a skill prompt file by name from code/prompts/skills.',
-    parameters: {
-      type: 'object',
-      properties: {
-        name: { type: 'string' },
-      },
-      required: ['name'],
-      additionalProperties: false,
-    },
-  },
-  {
-    type: 'function',
-    name: 'list_skills',
-    description: 'List all skills under code/prompts/skills.',
-    parameters: {
-      type: 'object',
-      properties: {},
-      required: [],
-      additionalProperties: false,
-    },
-  },
-  {
-    type: 'function',
     name: 'update_node',
     description: 'Update a node by targetName. This is a PARTIAL update: only the fields you pass are changed, and any field you omit keeps its existing value. Send just the fields you want to change — do not resend the whole node every time. (Note: omitting a field preserves it; passing a text field as an empty string clears it.)',
     parameters: {

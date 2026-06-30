@@ -167,6 +167,10 @@ function summarizeToolCall(call) {
 export function createAgentRuntime(deps) {
   const {
     promptFileById,
+    // Optional: reads a per-project, runtime-editable prompt from
+    // <projectRoot>/agents/<agent>/prompt.md. Returns '' when no project is open
+    // or the file is absent, in which case we fall back to the hardcoded prompt.
+    loadProjectAgentPrompt,
     suffixFileById,
     humanizeFileById,
     getAgentToolSchemas,
@@ -198,6 +202,18 @@ export function createAgentRuntime(deps) {
   }
 
   async function loadAgentSystemPrompt(agentId) {
+    // Prefer the per-project prompt when a project folder is open. This is read on
+    // every request (not cached) so edits to agents/<agent>/prompt.md take effect live.
+    // Any failure or absence falls through to the hardcoded prompt below.
+    if (typeof loadProjectAgentPrompt === 'function') {
+      try {
+        const projectPrompt = await loadProjectAgentPrompt(agentId);
+        if (String(projectPrompt || '').trim()) return projectPrompt;
+      } catch (_) {
+        // fall through to hardcoded prompt
+      }
+    }
+
     const promptMap = resolvePromptFileByIdMap();
     const target = promptMap[agentId] || promptMap.designer;
     if (!target) throw new Error('Missing agent system prompt path');

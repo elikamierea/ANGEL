@@ -11,7 +11,9 @@ export function createAgentModelSettingsController(deps) {
     getReasoningOptions = () => [],
     dom,
     setStatus,
+    resolveCliAuthTarget = () => null,
     onSettingsSaved = () => {},
+    onCliBackendSwitched = () => {},
     t = (key) => key,
   } = deps;
 
@@ -294,12 +296,95 @@ export function createAgentModelSettingsController(deps) {
     }
   }
 
+  // Backend selector for the two model-interaction lines: '' = the API-key (HTTP)
+  // provider below; a CLI profile id = the CLI sub-agent line. The token row is
+  // shown only for CLI profiles that carry an ANTHROPIC_AUTH_TOKEN (domestic
+  // providers); the subscription profile has none and uses the CLI's own login.
+  function renderBackendOptions(settings) {
+    if (!dom.agentModelBackend) return;
+    const active = String(settings.activeCliProfileId || '');
+    const profiles = Array.isArray(settings.cliProfiles) ? settings.cliProfiles : [];
+    dom.agentModelBackend.innerHTML = '';
+    const apiOption = document.createElement('option');
+    apiOption.value = '';
+    apiOption.textContent = 'API provider (HTTP)';
+    apiOption.selected = active === '';
+    dom.agentModelBackend.appendChild(apiOption);
+    for (const profile of profiles) {
+      if (!profile || !profile.id) continue;
+      const option = document.createElement('option');
+      option.value = profile.id;
+      option.textContent = `CLI · ${profile.label || profile.id}`;
+      option.selected = profile.id === active;
+      dom.agentModelBackend.appendChild(option);
+    }
+  }
+
+  function refreshCliTokenRow() {
+    const id = dom.agentModelBackend?.value || '';
+    const cliActive = Boolean(id);
+
+    // The API-key (HTTP) provider/model/key/loop fields are irrelevant when a CLI
+    // backend is selected — hide the whole block. (dangerouslySkipPermissions sits
+    // outside it and stays visible since the CLI line uses it too.)
+    if (dom.agentModelHttpFields) dom.agentModelHttpFields.classList.toggle('hidden', cliActive);
+
+    const profile = (loadSettings().cliProfiles || []).find((p) => p && p.id === id) || null;
+    const needsToken = Boolean(profile?.env && Object.prototype.hasOwnProperty.call(profile.env, 'ANTHROPIC_AUTH_TOKEN'));
+    if (dom.agentModelCliTokenRow) {
+      dom.agentModelCliTokenRow.classList.toggle('hidden', !needsToken);
+      if (needsToken && dom.agentModelCliToken) dom.agentModelCliToken.value = String(profile.env.ANTHROPIC_AUTH_TOKEN || '');
+    }
+
+    // OAuth sign-in block: subscription CLI profiles (no token override) whose
+    // driver advertises auth subcommands. Domestic token-based profiles use the
+    // token field above instead.
+    const target = (cliActive && !needsToken) ? resolveCliAuthTarget(id) : null;
+    if (dom.agentModelCliAuth) dom.agentModelCliAuth.classList.toggle('hidden', !target);
+    if (dom.agentModelCliAuthLog) dom.agentModelCliAuthLog.classList.add('hidden');
+    if (target) refreshCliAuthStatus(target);
+  }
+
+  function formatAuthStatus(text, ok) {
+    const raw = String(text || '').trim();
+    try {
+      const j = JSON.parse(raw); // claude auth status emits JSON
+      if (typeof j.loggedIn === 'boolean') {
+        if (!j.loggedIn) return 'Not signed in';
+        const bits = ['Signed in'];
+        if (j.email) bits.push(String(j.email));
+        if (j.subscriptionType) bits.push(`(${j.subscriptionType})`);
+        return bits.join(' · ');
+      }
+    } catch (_) { /* not JSON (e.g. codex's plain "Logged in using ChatGPT") */ }
+    return raw || (ok ? 'OK' : 'Unknown');
+  }
+
+  async function refreshCliAuthStatus(target) {
+    if (!dom.agentModelCliAuthStatus || !target) return;
+    if (!electronAPI?.cliAgent?.authStatus) { dom.agentModelCliAuthStatus.textContent = 'CLI auth is only available in the desktop app.'; return; }
+    dom.agentModelCliAuthStatus.textContent = 'Checking…';
+    try {
+      const res = await electronAPI.cliAgent.authStatus({ bin: target.bin, args: target.auth.status });
+      dom.agentModelCliAuthStatus.textContent = formatAuthStatus(res?.text || '', res?.ok);
+    } catch (e) {
+      dom.agentModelCliAuthStatus.textContent = `Status check failed: ${e?.message || e}`;
+    }
+  }
+
+  function currentCliAuthTarget() {
+    const id = dom.agentModelBackend?.value || '';
+    return id ? resolveCliAuthTarget(id) : null;
+  }
+
   function openModal() {
     if (!dom.agentModelModal) return;
     const settings = loadSettings();
     const providerId = settings.defaultProviderId || 'openai';
     const method = settings.providers?.[providerId]?.method || settings.defaultMethod || 'api_key';
 
+    renderBackendOptions(settings);
+    refreshCliTokenRow();
     renderProviderOptions(providerId);
     renderMethodOptions(providerId, method);
     renderModelOptions(providerId, method, settings.defaultModel);
@@ -414,6 +499,47 @@ export function createAgentModelSettingsController(deps) {
   }
 
   function bindEvents() {
+    if (dom.agentModelBackend) {
+      dom.agentModelBackend.addEventListener('change', () => refreshCliTokenRow());
+    }
+
+    if (dom.agentModelCliLogin) {
+      dom.agentModelCliLogin.addEventListener('click', async () => {
+        const target = currentCliAuthTarget();
+        if (!target || !electronAPI?.cliAgent?.authLogin) return;
+        const runId = (globalThis.crypto?.randomUUID && globalThis.crypto.randomUUID()) || `login_${Date.now()}`;
+        if (dom.agentModelCliAuthLog) { dom.agentModelCliAuthLog.textContent = ''; dom.agentModelCliAuthLog.classList.remove('hidden'); }
+        if (dom.agentModelCliAuthStatus) dom.agentModelCliAuthStatus.textContent = 'Signing in… a browser window should open — finish there.';
+        dom.agentModelCliLogin.disabled = true;
+        const append = (line) => { if (dom.agentModelCliAuthLog) dom.agentModelCliAuthLog.textContent += `${line}\n`; };
+        let unsub = null;
+        const done = () => { if (typeof unsub === 'function') { try { unsub(); } catch (_) {} } if (dom.agentModelCliLogin) dom.agentModelCliLogin.disabled = false; refreshCliAuthStatus(target); };
+        unsub = electronAPI.cliAgent.onEvent((data) => {
+          if (!data || data.runId !== runId) return;
+          if (data.kind === 'line') append(data.line);
+          else if (data.kind === 'spawnError') { append(`error: ${data.message}`); done(); }
+          else if (data.kind === 'close') done();
+        });
+        try {
+          await electronAPI.cliAgent.authLogin({ bin: target.bin, args: target.auth.login, runId });
+        } catch (e) {
+          append(`failed to launch: ${e?.message || e}`);
+          done();
+        }
+      });
+    }
+
+    if (dom.agentModelCliLogout) {
+      dom.agentModelCliLogout.addEventListener('click', async () => {
+        const target = currentCliAuthTarget();
+        if (!target || !electronAPI?.cliAgent?.authLogout) return;
+        dom.agentModelCliLogout.disabled = true;
+        try { await electronAPI.cliAgent.authLogout({ bin: target.bin, args: target.auth.logout }); } catch (_) {}
+        dom.agentModelCliLogout.disabled = false;
+        refreshCliAuthStatus(target);
+      });
+    }
+
     if (dom.agentModelProvider) {
       dom.agentModelProvider.addEventListener('change', () => {
         const providerId = dom.agentModelProvider.value;
@@ -577,10 +703,29 @@ export function createAgentModelSettingsController(deps) {
           providers: nextProviders,
         };
 
+        // Active backend line ('' = HTTP provider above; an id = a CLI profile),
+        // and the auth token for the selected domestic CLI profile.
+        const backendId = dom.agentModelBackend ? (dom.agentModelBackend.value || '') : String(current.activeCliProfileId || '');
+        next.activeCliProfileId = backendId;
+        if (backendId) {
+          const tokenVal = String(dom.agentModelCliToken?.value || '').trim();
+          next.cliProfiles = (current.cliProfiles || []).map((p) => (
+            p && p.id === backendId && p.env && Object.prototype.hasOwnProperty.call(p.env, 'ANTHROPIC_AUTH_TOKEN')
+              ? { ...p, env: { ...p.env, ANTHROPIC_AUTH_TOKEN: tokenVal } }
+              : p
+          ));
+        }
+
         try {
+          const prevBackendId = String(current.activeCliProfileId || '');
           await saveSettings(next);
           closeModal();
-          setStatus(`Agent model saved: ${providerId} / ${method} / ${model}`);
+          const backendLabel = backendId ? `CLI:${backendId}` : `${providerId} / ${method} / ${model}`;
+          setStatus(`Agent model saved: ${backendLabel}`);
+          // Switched to a different CLI source → announce + offer to copy memory.
+          if (backendId && backendId !== prevBackendId) {
+            try { await onCliBackendSwitched(prevBackendId, backendId); } catch (_) {}
+          }
         } catch {
           setStatus('Failed to save Agent model settings');
         }

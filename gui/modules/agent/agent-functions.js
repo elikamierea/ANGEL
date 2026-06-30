@@ -55,8 +55,6 @@ export function createAgentFunctions(deps) {
     compile_project: async (params = {}) => compileProjectByParams(params),
     run_project: async (params = {}) => runProjectByParams(params),
     web_fetch: async (params = {}) => webFetchByParams(params),
-    read_skill: async ({ name } = {}) => readSkillByName(name),
-    list_skills: async () => listSkills(),
     crop_image: async (params = {}) => cropImageByParams(params),
     create_sprite: async (params = {}) => composeSpriteByParams(params),
     update_node: (params = {}) => updateNodeByParams(params),
