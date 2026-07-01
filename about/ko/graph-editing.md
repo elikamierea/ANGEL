@@ -179,7 +179,7 @@ Auto Layout 은 ELK 를 사용해 노드 배치를 자동으로 정리합니다.
 - `stroke style`
 - `arrow`
 
-### 리소스 바인딩
+### 리소스 참조
 
 - 오른쪽 패널에서 `resourceBindings` 추가/제거
 

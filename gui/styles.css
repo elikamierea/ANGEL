@@ -334,6 +334,10 @@ body.resizing-left-panel * {
 .panel-card label.inline-check { display: flex; align-items: center; gap: 8px; }
 .panel-card label.inline-check input[type="checkbox"] { margin: 0; }
 .panel-card input, .panel-card textarea, .panel-card select { background: var(--input-bg); color: var(--input-text); border: 1px solid var(--input-border); border-radius: 4px; padding: 6px; }
+.panel-card textarea { resize: vertical; max-width: 100%; box-sizing: border-box; }
+.color-index-control { display: flex; align-items: center; gap: 8px; }
+.color-index-control select { flex: 1 1 auto; min-width: 0; }
+.color-swatch { flex: 0 0 auto; width: 20px; height: 20px; border-radius: 4px; border: 1px solid var(--input-border); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25); }
 .panel-card .row { display: flex; gap: 6px; flex-wrap: wrap; }
 .lock { border: 1px solid var(--lock-border); background: var(--lock-bg); color: var(--lock-text); font-size: 12px; padding: 6px; border-radius: 6px; margin-bottom: 8px; }
 
@@ -926,6 +930,15 @@ body.dragging-agent-chat * {
   word-break: break-all;
   user-select: all;
 }
+.agent-model-cli-install-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  font-size: 12px;
+  color: var(--validation-warn, #d08a3a);
+}
+.agent-model-cli-install-hint.hidden { display: none; }
 .execute-fail-detail {
   margin: 0;
   max-height: 220px;

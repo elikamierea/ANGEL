@@ -22,6 +22,7 @@ export function createInspectorUI(deps) {
     normalizeColorIndex,
     isNodeNameAvailable,
     getNodeRelations,
+    graphPalette,
     t,
   } = deps;
 
@@ -43,11 +44,57 @@ export function createInspectorUI(deps) {
     fieldDetail,
     fieldStatus,
     fieldColorIndex,
+    colorIndexSwatch,
     fieldExpectedRevision,
     blockBinding,
     includeGuard,
     lockMessage,
   } = dom;
+
+  function colorForIndex(idx) {
+    const i = normalizeColorIndex(idx);
+    const fillPalette = Array.isArray(graphPalette?.nodeFill) ? graphPalette.nodeFill : [];
+    const strokePalette = Array.isArray(graphPalette?.nodeStroke) ? graphPalette.nodeStroke : [];
+    return {
+      fill: fillPalette[i] || fillPalette[0] || '#1d2734',
+      stroke: strokePalette[i] || strokePalette[0] || '#4b5b72',
+    };
+  }
+
+  function contrastText(hex) {
+    const m = /^#?([0-9a-fA-F]{6})$/.exec(String(hex || '').trim());
+    if (!m) return '#e8eef7';
+    const n = Number.parseInt(m[1], 16);
+    const r = (n >> 16) & 255;
+    const g = (n >> 8) & 255;
+    const b = n & 255;
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    return luminance > 0.6 ? '#111111' : '#f5f7fa';
+  }
+
+  // Paint each dropdown option with its palette color so the color is visible
+  // while choosing. The closed <select> can't reliably show the option color,
+  // so a live swatch next to it reflects the current selection.
+  function paintColorIndexOptions() {
+    if (!fieldColorIndex) return;
+    Array.from(fieldColorIndex.options).forEach((opt) => {
+      const { fill } = colorForIndex(opt.value);
+      opt.style.backgroundColor = fill;
+      opt.style.color = contrastText(fill);
+    });
+  }
+
+  function updateColorIndexSwatch(idx) {
+    if (!colorIndexSwatch) return;
+    const { fill, stroke } = colorForIndex(idx);
+    colorIndexSwatch.style.backgroundColor = fill;
+    colorIndexSwatch.style.borderColor = stroke;
+  }
+
+  if (fieldColorIndex) {
+    fieldColorIndex.addEventListener('input', () => updateColorIndexSwatch(fieldColorIndex.value));
+  }
+  paintColorIndexOptions();
 
   function setEditorLocked(locked, message) {
     const controls = [fieldDetail, fieldStatus, fieldColorIndex].filter(Boolean);
@@ -148,7 +195,11 @@ export function createInspectorUI(deps) {
     fieldSummary.value = layerData.synopsis;
     fieldDetail.value = layerData.detail;
     if (fieldStatus) fieldStatus.value = layerData.status;
-    if (fieldColorIndex) fieldColorIndex.value = String(normalizeColorIndex(selected.colorIndex));
+    if (fieldColorIndex) {
+      fieldColorIndex.value = String(normalizeColorIndex(selected.colorIndex));
+      paintColorIndexOptions();
+      updateColorIndexSwatch(selected.colorIndex);
+    }
     fieldExpectedRevision.value = String(selected.revision);
 
     const mirrorNode = isMirrorNode(selected);

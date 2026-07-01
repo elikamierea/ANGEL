@@ -1,8 +1,8 @@
 {
     "files":  [
                   "./default.json",
+                  "./dark.json",
                   "./light.json",
-                  "./monochrome.json",
                   "./rain.json",
                   "./meadow.json",
                   "./cyberpunk.json",

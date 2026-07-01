@@ -65,6 +65,7 @@ export function createCliAgentRuntime(deps = {}) {
     applyAgentTodos,                // (agentId, items) => void — mirror native todos into the panel
     showAgentPlan,                  // (agentId, planText) => void — surface a proposed plan (display-only)
     notifyAgent,                    // (agentId, i18nKey, params?) => void — push a translated system note
+    t = (key) => key,               // (key, params?) => string — i18n translator
   } = deps;
 
   // Map a Claude tool_use into ANGEL's canonical function_call turn shape (same
@@ -297,7 +298,7 @@ export function createCliAgentRuntime(deps = {}) {
             finishReply();
           }
         } else if (data.kind === 'spawnError') {
-          settleOnce({ error: `Failed to launch ${launch.bin}: ${data.message}. Is the CLI installed and on PATH?` });
+          settleOnce({ error: t('agentChat.cli.launchFailed', { bin: launch.bin, message: String(data.message || '') }) });
         }
       };
 

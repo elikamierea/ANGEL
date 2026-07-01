@@ -30,7 +30,7 @@ export const SHARED_AGENT_TOOL_SCHEMAS = [
   {
     type: 'function',
     name: 'get_node_detail',
-    description: 'Given node name (and optional layer), return node detail and connected edges. Each edge includes its id for precise follow-up update/delete calls, and uses fromNode/toNode to indicate the other endpoint direction relative to the queried node, plus node synopsis + lrtb (left/right/top/bottom). resourceBindings reflect the queried layer only (bindings are per-layer). If layer is omitted, search all layers (L0-L3).',
+    description: 'Given node name (and optional layer), return node detail and connected edges. Each edge includes its id for precise follow-up update/delete calls, and uses fromNode/toNode to indicate the other endpoint direction relative to the queried node, plus node synopsis + lrtb (left/right/top/bottom). resourceBindings reflect the queried layer only (references are per-layer). If layer is omitted, search all layers (L0-L3).',
     parameters: {
       type: 'object',
       properties: {
@@ -84,7 +84,7 @@ export const SHARED_AGENT_TOOL_SCHEMAS = [
         },
         resourceBindings: {
           type: 'array',
-          description: 'Resource bindings for this node, scoped to the given layer. Each layer keeps its own independent bindings (e.g. design-layer images/sprites vs code-layer source files); bindings added on one layer are not visible on others.',
+          description: 'Resource references for this node, scoped to the given layer. Each layer keeps its own independent references (e.g. design-layer images/sprites vs code-layer source files); references added on one layer are not visible on others.',
           items: {
             type: 'object',
             properties: {
@@ -165,7 +165,7 @@ export const SHARED_AGENT_TOOL_SCHEMAS = [
         color: { type: 'number' },
         resourceBindings: {
           type: 'array',
-          description: 'Resource bindings for this node, scoped to the given layer. Each layer keeps its own independent bindings (e.g. design-layer images/sprites vs code-layer source files); bindings added on one layer are not visible on others.',
+          description: 'Resource references for this node, scoped to the given layer. Each layer keeps its own independent references (e.g. design-layer images/sprites vs code-layer source files); references added on one layer are not visible on others.',
           items: {
             type: 'object',
             properties: {
@@ -472,7 +472,7 @@ export const SHARED_AGENT_TOOL_SCHEMAS = [
         },
         resourceBindings: {
           type: 'array',
-          description: 'Resource bindings for this node, scoped to the given layer. Each layer keeps its own independent bindings (e.g. design-layer images/sprites vs code-layer source files); bindings added on one layer are not visible on others.',
+          description: 'Resource references for this node, scoped to the given layer. Each layer keeps its own independent references (e.g. design-layer images/sprites vs code-layer source files); references added on one layer are not visible on others.',
           items: {
             type: 'object',
             properties: {

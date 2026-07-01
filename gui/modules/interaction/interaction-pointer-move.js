@@ -4,8 +4,7 @@ export function createInteractionPointerMove(deps) {
     nodes,
     edges,
     canvas,
-    MIN_NODE_W,
-    MIN_NODE_H,
+    MIN_NODE_SCREEN_PX,
     getCanvasPointer,
     getSelectionBBoxFromSession,
     getRectResizeHandleAt,
@@ -48,8 +47,10 @@ export function createInteractionPointerMove(deps) {
       const baseById = state.transformStretchBaseById;
       const handle = state.transformStretchHandle;
       if (baseBox && baseById && handle) {
-        const minW = 20;
-        const minH = 20;
+        // Stretch has no lower bound; only a degenerate guard so the box can't
+        // invert. Per-node degenerate safety lives in applySelectionTransformByBoxes.
+        const minW = 1;
+        const minH = 1;
         let left = baseBox.x;
         let top = baseBox.y;
         let right = baseBox.x + baseBox.w;
@@ -203,27 +204,38 @@ export function createInteractionPointerMove(deps) {
 
     if (state.dragMode === 'resize' && state.draggedNodeId && state.resizeHandle) {
       const p = getCanvasPointer(e);
-      const rdx = p.world.x - state.resizeStartWorldX;
-      const rdy = p.world.y - state.resizeStartWorldY;
-      const minWByScreen = 64 / state.dragStartZoom;
-      const minHByScreen = 64 / state.dragStartZoom;
+      let rdx = p.world.x - state.resizeStartWorldX;
+      let rdy = p.world.y - state.resizeStartWorldY;
+      const handle = state.resizeHandle;
+      const floorW = MIN_NODE_SCREEN_PX / state.dragStartZoom;
+      const floorH = MIN_NODE_SCREEN_PX / state.dragStartZoom;
+
+      // Group lock: clamp the drag delta so the most-constrained selected node
+      // never drops below its floor (min(32px, its start size)). If any node is
+      // already under 32px in an axis, that axis locks for the whole selection
+      // (shrink blocked, growth still allowed).
+      for (const [, base] of state.resizeSnapshot?.entries() || []) {
+        const minW = Math.min(floorW, base.w);
+        const minH = Math.min(floorH, base.h);
+        if (handle.includes('e')) rdx = Math.max(rdx, minW - base.w);
+        if (handle.includes('w')) rdx = Math.min(rdx, base.w - minW);
+        if (handle.includes('s')) rdy = Math.max(rdy, minH - base.h);
+        if (handle.includes('n')) rdy = Math.min(rdy, base.h - minH);
+      }
 
       for (const [id, base] of state.resizeSnapshot?.entries() || []) {
         const node = nodes.find((n) => n.id === id);
         if (!node) continue;
-
-        const minW = Math.max(1, Math.min(minWByScreen, base.w || MIN_NODE_W));
-        const minH = Math.max(1, Math.min(minHByScreen, base.h || MIN_NODE_H));
 
         let left = base.x;
         let top = base.y;
         let right = base.x + base.w;
         let bottom = base.y + base.h;
 
-        if (state.resizeHandle.includes('w')) left = Math.min(base.x + rdx, right - minW);
-        if (state.resizeHandle.includes('e')) right = Math.max(base.x + base.w + rdx, left + minW);
-        if (state.resizeHandle.includes('n')) top = Math.min(base.y + rdy, bottom - minH);
-        if (state.resizeHandle.includes('s')) bottom = Math.max(base.y + base.h + rdy, top + minH);
+        if (handle.includes('w')) left = base.x + rdx;
+        if (handle.includes('e')) right = base.x + base.w + rdx;
+        if (handle.includes('n')) top = base.y + rdy;
+        if (handle.includes('s')) bottom = base.y + base.h + rdy;
 
         node.x = left;
         node.y = top;

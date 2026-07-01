@@ -213,6 +213,17 @@ const languageClose = document.getElementById('language-close');
 const languageCancel = document.getElementById('language-cancel');
 const languageSave = document.getElementById('language-save');
 const agentModelBackend = document.getElementById('agent-model-backend');
+const agentModelCliModel = document.getElementById('agent-model-cli-model');
+const agentModelCliModelRow = document.getElementById('agent-model-cli-model-row');
+const agentModelCliInstallHint = document.getElementById('agent-model-cli-install-hint');
+const agentModelCliInstallMsg = document.getElementById('agent-model-cli-install-msg');
+const agentModelCliInstallOpen = document.getElementById('agent-model-cli-install-open');
+const cliInstallModal = document.getElementById('cli-install-modal');
+const cliInstallTitle = document.getElementById('cli-install-title');
+const cliInstallIntro = document.getElementById('cli-install-intro');
+const cliInstallUrl = document.getElementById('cli-install-url');
+const cliInstallClose = document.getElementById('cli-install-close');
+const cliInstallRecheck = document.getElementById('cli-install-recheck');
 const agentModelHttpFields = document.getElementById('agent-model-http-fields');
 const agentModelCliTokenRow = document.getElementById('agent-model-cli-token-row');
 const agentModelCliToken = document.getElementById('agent-model-cli-token');
@@ -345,6 +356,7 @@ const fieldSummary = document.getElementById('field-summary');
 const fieldDetail = document.getElementById('field-detail');
 const fieldStatus = document.getElementById('field-status');
 const fieldColorIndex = document.getElementById('field-color-index');
+const colorIndexSwatch = document.getElementById('color-index-swatch');
 const fieldExpectedRevision = document.getElementById('field-expected-revision');
 const saveSelectionBtn = document.getElementById('save-selection');
 const lockMessage = document.getElementById('lock-message');
@@ -398,6 +410,10 @@ const collapsedFileTreePaths = new Set();
 
 const CREATE_NODE_CAMERA_WIDTH_RATIO = 0.15;
 const CREATE_NODE_ASPECT_RATIO = 180 / 80;
+// Single source of truth for the node minimum size: a screen-space floor of
+// 32px. Create clamps to it; resize/stretch can shrink down to it, but a node
+// already smaller than 32px in some axis can't be shrunk further in that axis.
+const MIN_NODE_SCREEN_PX = 32;
 const MIRROR_DEFAULT_DETAIL = 'This is a mirror of another node. Visit via the mirror relationship for more information.';
 
 const AGENT_MODEL_SETTINGS_KEY = 'angel.agent-model-settings.v1';
@@ -1269,8 +1285,7 @@ const appShellUI = createAppShellUI({
   isNodeVisibleInActiveLayer,
   getNodeLodLevel,
   cssVar,
-  MIN_NODE_W: 120,
-  MIN_NODE_H: 64,
+  MIN_NODE_SCREEN_PX,
   t,
 });
 
@@ -1937,6 +1952,17 @@ const agentModelSettingsController = createAgentModelSettingsController({
   dom: {
     agentModelModal,
     agentModelBackend,
+    agentModelCliModel,
+    agentModelCliModelRow,
+    agentModelCliInstallHint,
+    agentModelCliInstallMsg,
+    agentModelCliInstallOpen,
+    cliInstallModal,
+    cliInstallTitle,
+    cliInstallIntro,
+    cliInstallUrl,
+    cliInstallClose,
+    cliInstallRecheck,
     agentModelHttpFields,
     agentModelCliTokenRow,
     agentModelCliToken,
@@ -2542,6 +2568,7 @@ const cliAgentRuntime = createCliAgentRuntime({
       renderAgentTimeline({ forceScrollBottom: true });
     } catch (_) { /* best effort */ }
   },
+  t,
 });
 
 async function requestAgentCompletion(params) {
@@ -2850,8 +2877,6 @@ function distancePointToSegment(px, py, ax, ay, bx, by) {
   return Math.hypot(px - cx, py - cy);
 }
 
-const MIN_NODE_W = 120;
-const MIN_NODE_H = 64;
 
 function getNodeResizeHandles(node) {
   const x1 = node.x;
@@ -2941,8 +2966,7 @@ const interactionPointerMove = createInteractionPointerMove({
   nodes,
   edges,
   canvas,
-  MIN_NODE_W,
-  MIN_NODE_H,
+  MIN_NODE_SCREEN_PX,
   getCanvasPointer,
   getSelectionBBoxFromSession,
   getRectResizeHandleAt,
@@ -2994,6 +3018,7 @@ const interactionPointerUp = createInteractionPointerUp({
   edges,
   CREATE_NODE_CAMERA_WIDTH_RATIO,
   CREATE_NODE_ASPECT_RATIO,
+  MIN_NODE_SCREEN_PX,
   MIRROR_DEFAULT_DETAIL,
   pushTransformPreviewCheckpoint,
   pushHistory,
@@ -3295,12 +3320,14 @@ const inspectorUI = createInspectorUI({
     fieldDetail,
     fieldStatus,
     fieldColorIndex,
+    colorIndexSwatch,
     fieldExpectedRevision,
     blockBinding,
     includeGuard,
     lockMessage,
     saveSelectionBtn,
   },
+  graphPalette,
   normalizeSelectedNodeIds,
   getSelectedNode,
   getSelectedEdge,
@@ -4454,7 +4481,7 @@ async function initializeApp() {
   const _startLocale = getSavedLocale();
   applyAppFont(getSavedAppFont(_startLocale));
   await applyLocale(_startLocale);
-  themeSettingsController.hydrate();
+  await themeSettingsController.hydrate();
 
   normalizeGraphSchema();
   updateTopbar();

@@ -335,7 +335,7 @@ export function createThemeSettingsController({
   let cache = null;
   let pendingBackgroundImageDataUrl = '';
   let presets = null;
-  let presetLabels = { default: 'Default', light: 'Light Blue', manhattanhenge: 'Sunset' };
+  let presetLabels = { default: 'Monochrome', dark: 'Dark', light: 'Light Blue', manhattanhenge: 'Sunset' };
   let externalPresetLoadPromise = null;
 
   function mergeExternalPresets(rawPayload) {
@@ -723,7 +723,10 @@ export function createThemeSettingsController({
     }
   }
 
-  function hydrate() {
+  async function hydrate() {
+    // Load external presets first so the built-in `default` slot reflects the
+    // shipped default theme (Monochrome) rather than the CSS :root fallback.
+    await ensureExternalPresetsLoaded();
     const settings = load();
     apply(settings);
   }

@@ -296,40 +296,116 @@ export function createAgentModelSettingsController(deps) {
     }
   }
 
-  // Backend selector for the two model-interaction lines: '' = the API-key (HTTP)
-  // provider below; a CLI profile id = the CLI sub-agent line. The token row is
-  // shown only for CLI profiles that carry an ANTHROPIC_AUTH_TOKEN (domestic
-  // providers); the subscription profile has none and uses the CLI's own login.
+  // --- Backend selector (two levels) -----------------------------------------
+  // Level 1 (agentModelBackend) picks a *family*: '' = the API-key (HTTP) line, or
+  // a CLI driver id ('claude-code' / 'codex'). Level 2 (agentModelCliModel) picks
+  // which profile inside a multi-profile family (e.g. Claude Code -> subscription /
+  // Kimi / GLM / DeepSeek); it's hidden for HTTP and for single-profile families,
+  // which auto-select their one profile. The effective backend id (what gets saved
+  // as activeCliProfileId) is derived by getSelectedBackendId().
+
+  // Per-driver install guidance (link-based, mirroring the C++ build-tools modal).
+  const CLI_INSTALL_INFO = {
+    'claude-code': { name: 'Claude Code', url: 'https://claude.com/claude-code' },
+    codex: { name: 'Codex', url: 'https://developers.openai.com/codex/cli' },
+  };
+
+  function cliProfilesList(settings) {
+    const s = settings || loadSettings();
+    return Array.isArray(s.cliProfiles) ? s.cliProfiles.filter((p) => p && p.id) : [];
+  }
+  function cliProfilesOfDriver(driverId, settings) {
+    return cliProfilesList(settings).filter((p) => String(p.driver || 'claude-code') === driverId);
+  }
+  function driverOfProfile(profileId, settings) {
+    const p = cliProfilesList(settings).find((x) => x.id === profileId);
+    return p ? String(p.driver || 'claude-code') : '';
+  }
+  function familyDisplayName(driverId) {
+    if (driverId === 'claude-code') return t('modal.agentModel.familyClaude') || 'Claude Code';
+    if (driverId === 'codex') return t('modal.agentModel.familyCodex') || 'Codex';
+    return CLI_INSTALL_INFO[driverId]?.name || driverId;
+  }
+
+  // Ordered, de-duped list of CLI driver families present in the saved profiles.
+  function cliFamilies(settings) {
+    const seen = new Set();
+    const fams = [];
+    for (const p of cliProfilesList(settings)) {
+      const d = String(p.driver || 'claude-code');
+      if (seen.has(d)) continue;
+      seen.add(d);
+      fams.push(d);
+    }
+    return fams;
+  }
+
   function renderBackendOptions(settings) {
     if (!dom.agentModelBackend) return;
     const active = String(settings.activeCliProfileId || '');
-    const profiles = Array.isArray(settings.cliProfiles) ? settings.cliProfiles : [];
+    const activeFamily = active ? driverOfProfile(active, settings) : '';
     dom.agentModelBackend.innerHTML = '';
     const apiOption = document.createElement('option');
     apiOption.value = '';
-    apiOption.textContent = 'API provider (HTTP)';
+    apiOption.textContent = t('modal.agentModel.familyHttp') || 'API provider (HTTP)';
     apiOption.selected = active === '';
     dom.agentModelBackend.appendChild(apiOption);
-    for (const profile of profiles) {
-      if (!profile || !profile.id) continue;
+    for (const driverId of cliFamilies(settings)) {
       const option = document.createElement('option');
-      option.value = profile.id;
-      option.textContent = `CLI · ${profile.label || profile.id}`;
-      option.selected = profile.id === active;
+      option.value = driverId;
+      option.textContent = familyDisplayName(driverId);
+      option.selected = driverId === activeFamily;
       dom.agentModelBackend.appendChild(option);
+    }
+    renderCliModelOptions(settings, active);
+  }
+
+  // Level-2 model select: populated from the selected family's profiles. Hidden
+  // when no CLI family is selected or the family has a single profile.
+  function renderCliModelOptions(settings, activeProfileId) {
+    const sel = dom.agentModelCliModel;
+    const row = dom.agentModelCliModelRow;
+    if (!sel) return;
+    const family = dom.agentModelBackend?.value || '';
+    const profiles = family ? cliProfilesOfDriver(family, settings) : [];
+    sel.innerHTML = '';
+    for (const p of profiles) {
+      const option = document.createElement('option');
+      option.value = p.id;
+      option.textContent = String(p.label || p.id);
+      option.selected = p.id === activeProfileId;
+      sel.appendChild(option);
+    }
+    const showLevel2 = profiles.length > 1;
+    if (row) row.classList.toggle('hidden', !showLevel2);
+    if (showLevel2 && !profiles.some((p) => p.id === activeProfileId)) {
+      sel.value = profiles[0].id; // default to the first when active isn't in this family
     }
   }
 
+  // Effective backend id from the two selects: '' (HTTP), the single profile of a
+  // one-profile family, or the level-2 selection.
+  function getSelectedBackendId() {
+    const family = dom.agentModelBackend?.value || '';
+    if (!family) return '';
+    const profiles = cliProfilesOfDriver(family, loadSettings());
+    if (profiles.length <= 1) return profiles[0]?.id || '';
+    return dom.agentModelCliModel?.value || profiles[0]?.id || '';
+  }
+
   function refreshCliTokenRow() {
-    const id = dom.agentModelBackend?.value || '';
-    const cliActive = Boolean(id);
+    const family = dom.agentModelBackend?.value || '';
+    const settings = loadSettings();
+    renderCliModelOptions(settings, getSelectedBackendId());
+    const id = getSelectedBackendId();
+    const cliActive = Boolean(family);
 
     // The API-key (HTTP) provider/model/key/loop fields are irrelevant when a CLI
     // backend is selected — hide the whole block. (dangerouslySkipPermissions sits
     // outside it and stays visible since the CLI line uses it too.)
     if (dom.agentModelHttpFields) dom.agentModelHttpFields.classList.toggle('hidden', cliActive);
 
-    const profile = (loadSettings().cliProfiles || []).find((p) => p && p.id === id) || null;
+    const profile = (settings.cliProfiles || []).find((p) => p && p.id === id) || null;
     const needsToken = Boolean(profile?.env && Object.prototype.hasOwnProperty.call(profile.env, 'ANTHROPIC_AUTH_TOKEN'));
     if (dom.agentModelCliTokenRow) {
       dom.agentModelCliTokenRow.classList.toggle('hidden', !needsToken);
@@ -338,11 +414,56 @@ export function createAgentModelSettingsController(deps) {
 
     // OAuth sign-in block: subscription CLI profiles (no token override) whose
     // driver advertises auth subcommands. Domestic token-based profiles use the
-    // token field above instead.
-    const target = (cliActive && !needsToken) ? resolveCliAuthTarget(id) : null;
-    if (dom.agentModelCliAuth) dom.agentModelCliAuth.classList.toggle('hidden', !target);
+    // token field above instead. Both are gated behind a CLI-presence check so we
+    // don't run auth against a missing binary (which surfaced a raw ENOENT).
     if (dom.agentModelCliAuthLog) dom.agentModelCliAuthLog.classList.add('hidden');
-    if (target) refreshCliAuthStatus(target);
+    if (!cliActive) {
+      if (dom.agentModelCliAuth) dom.agentModelCliAuth.classList.add('hidden');
+      if (dom.agentModelCliInstallHint) dom.agentModelCliInstallHint.classList.add('hidden');
+      return;
+    }
+    updateCliPresence(family, id, needsToken);
+  }
+
+  // Detect whether the family's CLI is installed. If not, show an install hint
+  // (with a "how to install" button) and suppress the sign-in block; if it is,
+  // reveal the sign-in block (for subscription profiles) and run auth status.
+  let cliPresenceSeq = 0;
+  async function updateCliPresence(family, id, needsToken) {
+    const seq = ++cliPresenceSeq;
+    const authTarget = (!needsToken) ? resolveCliAuthTarget(id) : null;
+    const bin = resolveCliAuthTarget(id)?.bin || '';
+
+    const showInstall = (missing) => {
+      if (dom.agentModelCliInstallHint) dom.agentModelCliInstallHint.classList.toggle('hidden', !missing);
+      if (missing && dom.agentModelCliInstallMsg) {
+        dom.agentModelCliInstallMsg.textContent = t('modal.agentModel.cliNotDetected', { name: familyDisplayName(family) });
+      }
+      if (dom.agentModelCliInstallOpen) dom.agentModelCliInstallOpen.dataset.driver = family;
+      // While missing, hide the sign-in block; the CLI can't authenticate.
+      if (missing && dom.agentModelCliAuth) dom.agentModelCliAuth.classList.add('hidden');
+    };
+
+    // No detect capability (e.g. non-desktop) → assume present, keep old behaviour.
+    if (!electronAPI?.cliAgent?.detect) {
+      showInstall(false);
+      if (dom.agentModelCliAuth) dom.agentModelCliAuth.classList.toggle('hidden', !authTarget);
+      if (authTarget) refreshCliAuthStatus(authTarget);
+      return;
+    }
+
+    if (dom.agentModelCliAuthStatus) dom.agentModelCliAuthStatus.textContent = t('modal.agentModel.cliChecking') || 'Checking…';
+    let ok = false;
+    try {
+      const res = await electronAPI.cliAgent.detect({ bin });
+      ok = Boolean(res?.ok);
+    } catch (_) { ok = false; }
+    if (seq !== cliPresenceSeq) return; // superseded by a newer selection
+
+    showInstall(!ok);
+    if (!ok) return;
+    if (dom.agentModelCliAuth) dom.agentModelCliAuth.classList.toggle('hidden', !authTarget);
+    if (authTarget) refreshCliAuthStatus(authTarget);
   }
 
   function formatAuthStatus(text, ok) {
@@ -373,8 +494,54 @@ export function createAgentModelSettingsController(deps) {
   }
 
   function currentCliAuthTarget() {
-    const id = dom.agentModelBackend?.value || '';
+    const id = getSelectedBackendId();
     return id ? resolveCliAuthTarget(id) : null;
+  }
+
+  // --- CLI install guidance modal (link-based, mirrors the C++ build-tools modal) ---
+  let cliInstallModalBound = false;
+  let cliInstallDriver = '';
+  function closeCliInstallModal() {
+    if (!dom.cliInstallModal) return;
+    dom.cliInstallModal.classList.add('hidden');
+    dom.cliInstallModal.setAttribute('aria-hidden', 'true');
+  }
+  function bindCliInstallModalOnce() {
+    if (cliInstallModalBound) return;
+    cliInstallModalBound = true;
+    dom.cliInstallClose?.addEventListener('click', () => closeCliInstallModal());
+    dom.cliInstallModal?.addEventListener('click', (evt) => {
+      const target = evt?.target;
+      if (target && target.dataset && target.dataset.closeCliInstall) closeCliInstallModal();
+    });
+    dom.cliInstallRecheck?.addEventListener('click', async () => {
+      const info = CLI_INSTALL_INFO[cliInstallDriver];
+      const bin = cliInstallDriver === 'codex' ? 'codex' : 'claude';
+      if (!electronAPI?.cliAgent?.detect) { closeCliInstallModal(); return; }
+      const res = await electronAPI.cliAgent.detect({ bin }).catch(() => null);
+      const name = info?.name || cliInstallDriver;
+      if (res?.ok) {
+        closeCliInstallModal();
+        setStatus(t('modal.cliInstall.detected', { name }));
+        refreshCliTokenRow();
+      } else {
+        setStatus(t('modal.cliInstall.stillMissing', { name }));
+      }
+    });
+  }
+  function openCliInstallModal(driverId) {
+    cliInstallDriver = driverId;
+    const info = CLI_INSTALL_INFO[driverId] || { name: driverId, url: '' };
+    if (dom.cliInstallTitle) dom.cliInstallTitle.textContent = t('modal.cliInstall.title', { name: info.name });
+    if (dom.cliInstallIntro) dom.cliInstallIntro.textContent = t('modal.cliInstall.intro', { name: info.name });
+    if (dom.cliInstallUrl) dom.cliInstallUrl.textContent = info.url;
+    if (!dom.cliInstallModal) {
+      if (typeof window !== 'undefined' && typeof window.alert === 'function') window.alert(`${info.name}: ${info.url}`);
+      return;
+    }
+    bindCliInstallModalOnce();
+    dom.cliInstallModal.classList.remove('hidden');
+    dom.cliInstallModal.setAttribute('aria-hidden', 'false');
   }
 
   function openModal() {
@@ -501,6 +668,15 @@ export function createAgentModelSettingsController(deps) {
   function bindEvents() {
     if (dom.agentModelBackend) {
       dom.agentModelBackend.addEventListener('change', () => refreshCliTokenRow());
+    }
+    if (dom.agentModelCliModel) {
+      dom.agentModelCliModel.addEventListener('change', () => refreshCliTokenRow());
+    }
+    if (dom.agentModelCliInstallOpen) {
+      dom.agentModelCliInstallOpen.addEventListener('click', () => {
+        const driverId = dom.agentModelCliInstallOpen.dataset.driver || dom.agentModelBackend?.value || 'claude-code';
+        openCliInstallModal(driverId);
+      });
     }
 
     if (dom.agentModelCliLogin) {
@@ -705,7 +881,7 @@ export function createAgentModelSettingsController(deps) {
 
         // Active backend line ('' = HTTP provider above; an id = a CLI profile),
         // and the auth token for the selected domestic CLI profile.
-        const backendId = dom.agentModelBackend ? (dom.agentModelBackend.value || '') : String(current.activeCliProfileId || '');
+        const backendId = dom.agentModelBackend ? getSelectedBackendId() : String(current.activeCliProfileId || '');
         next.activeCliProfileId = backendId;
         if (backendId) {
           const tokenVal = String(dom.agentModelCliToken?.value || '').trim();

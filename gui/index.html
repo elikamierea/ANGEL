@@ -134,6 +134,7 @@
           <label><span data-i18n="inspector.field.synopsis">Synopsis</span><input id="field-summary" /></label>
           <label><span data-i18n="inspector.field.detail">Detail</span><textarea id="field-detail" rows="3"></textarea></label>
           <label><span data-i18n="inspector.field.colorIndex">Color Index</span>
+            <span class="color-index-control">
             <select id="field-color-index">
               <option value="0">0</option>
               <option value="1">1</option>
@@ -152,6 +153,8 @@
               <option value="14">14</option>
               <option value="15">15</option>
             </select>
+            <span id="color-index-swatch" class="color-swatch" aria-hidden="true"></span>
+            </span>
           </label>
           <input id="field-expected-revision" type="hidden" />
           <div id="lock-message" class="lock hidden"></div>
@@ -183,9 +186,9 @@
         </section>
 
         <section id="block-binding-panel" class="panel-card">
-          <h4 data-i18n="inspector.bindings.title">Resource Bindings</h4>
+          <h4 data-i18n="inspector.bindings.title">Resource References</h4>
           <div class="row">
-            <button id="binding-add" type="button" data-i18n="inspector.action.addBinding">Insert Binding</button>
+            <button id="binding-add" type="button" data-i18n="inspector.action.addBinding">Insert Reference</button>
           </div>
           <ul id="block-binding"></ul>
         </section>
@@ -435,12 +438,19 @@
           <button id="agent-model-close" type="button" data-i18n="ui.symbol.close">X</button>
         </div>
         <div class="modal-body">
-          <label><span>Backend</span>
+          <label><span data-i18n="modal.agentModel.backend">Backend</span>
             <select id="agent-model-backend"></select>
+          </label>
+          <label id="agent-model-cli-model-row" class="hidden"><span data-i18n="modal.agentModel.cliModelLabel">Model</span>
+            <select id="agent-model-cli-model"></select>
           </label>
           <label id="agent-model-cli-token-row" class="hidden"><span>CLI Auth Token</span>
             <input id="agent-model-cli-token" type="password" placeholder="ANTHROPIC_AUTH_TOKEN (blank = subscription login)" autocomplete="off" />
           </label>
+          <div id="agent-model-cli-install-hint" class="hidden agent-model-cli-install-hint">
+            <span id="agent-model-cli-install-msg"></span>
+            <button id="agent-model-cli-install-open" type="button" data-i18n="modal.agentModel.cliInstallBtn">How to install</button>
+          </div>
           <div id="agent-model-cli-auth" class="hidden agent-model-cli-auth">
             <div class="agent-model-cli-auth-row">
               <span id="agent-model-cli-auth-status">…</span>
@@ -818,6 +828,32 @@
         </div>
         <div class="modal-actions">
           <button id="build-tools-recheck" type="button" data-i18n="modal.buildTools.recheck">Re-check</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="cli-install-modal" class="modal hidden" aria-hidden="true" role="dialog" aria-labelledby="cli-install-title">
+      <div class="modal-backdrop" data-close-cli-install="1"></div>
+      <div class="modal-panel">
+        <div class="modal-head">
+          <h3 id="cli-install-title">CLI required</h3>
+          <button id="cli-install-close" type="button" data-i18n="ui.symbol.close">X</button>
+        </div>
+        <div class="modal-body">
+          <p id="cli-install-intro" class="modal-note"></p>
+          <p class="modal-note">
+            <span data-i18n="modal.cliInstall.pageLabel">Official page:</span>
+            <span id="cli-install-url" class="build-tools-url"></span>
+          </p>
+          <ol class="build-tools-steps">
+            <li data-i18n="modal.cliInstall.step1">Open the official page above in your browser.</li>
+            <li data-i18n="modal.cliInstall.step2">Follow its instructions to install the CLI on this PC.</li>
+            <li data-i18n="modal.cliInstall.step3">Sign in from this app's settings (or as the page describes).</li>
+            <li data-i18n="modal.cliInstall.step4">When it finishes, return here and click Re-check.</li>
+          </ol>
+        </div>
+        <div class="modal-actions">
+          <button id="cli-install-recheck" type="button" data-i18n="modal.cliInstall.recheck">Re-check</button>
         </div>
       </div>
     </section>

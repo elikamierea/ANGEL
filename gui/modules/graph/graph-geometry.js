@@ -131,8 +131,10 @@ export function createGraphGeometry(deps) {
 
       node.x = targetBox.x + rx * targetBox.w;
       node.y = targetBox.y + ry * targetBox.h;
-      node.w = Math.max(20, rw * targetBox.w);
-      node.h = Math.max(20, rh * targetBox.h);
+      // Real minimum is enforced at the drag boundary (screen-space floor);
+      // this only guards against degenerate/zero sizes.
+      node.w = Math.max(1, rw * targetBox.w);
+      node.h = Math.max(1, rh * targetBox.h);
     }
   }
 

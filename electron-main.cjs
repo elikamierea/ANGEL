@@ -1692,17 +1692,20 @@ const cliLauncherCache = new Map();
 function resolveCliLauncher(bin) {
   if (cliLauncherCache.has(bin)) return cliLauncherCache.get(bin);
   let resolved = { command: bin, useShell: false };
+  let confirmed = process.platform !== 'win32'; // non-win: trust PATH/spawn directly
   if (process.platform === 'win32') {
     try {
       const out = require('child_process').execFileSync('where', [bin], { encoding: 'utf-8' });
       const matches = out.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
       const exe = matches.find((m) => /\.exe$/i.test(m));
       const cmd = matches.find((m) => /\.(cmd|bat)$/i.test(m));
-      if (exe) resolved = { command: exe, useShell: false };
-      else if (cmd) resolved = { command: cmd, useShell: true };
-    } catch (_) { /* not found via `where`; fall back to bare bin */ }
+      if (exe) { resolved = { command: exe, useShell: false }; confirmed = true; }
+      else if (cmd) { resolved = { command: cmd, useShell: true }; confirmed = true; }
+    } catch (_) { /* not found via `where`; fall back to bare bin (do NOT cache) */ }
   }
-  cliLauncherCache.set(bin, resolved);
+  // Only cache a CONFIRMED resolution. A negative (bare-bin fallback) must not be
+  // cached, or a later install + re-detect would keep reading the stale miss.
+  if (confirmed) cliLauncherCache.set(bin, resolved);
   return resolved;
 }
 

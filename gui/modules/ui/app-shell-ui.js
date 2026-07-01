@@ -28,8 +28,7 @@ export function createAppShellUI(deps) {
     isNodeVisibleInActiveLayer,
     getNodeLodLevel,
     cssVar,
-    MIN_NODE_W,
-    MIN_NODE_H,
+    MIN_NODE_SCREEN_PX,
     t = (key) => key,
   } = deps;
 
@@ -147,10 +146,10 @@ export function createAppShellUI(deps) {
   }
 
   function applyResize(node, handle, worldX, worldY) {
-    const minWByScreen = 64 / state.dragStartZoom;
-    const minHByScreen = 64 / state.dragStartZoom;
-    const minW = Math.max(1, Math.min(minWByScreen, state.dragStartW || MIN_NODE_W));
-    const minH = Math.max(1, Math.min(minHByScreen, state.dragStartH || MIN_NODE_H));
+    const minWByScreen = MIN_NODE_SCREEN_PX / state.dragStartZoom;
+    const minHByScreen = MIN_NODE_SCREEN_PX / state.dragStartZoom;
+    const minW = Math.max(1, Math.min(minWByScreen, state.dragStartW || node.w));
+    const minH = Math.max(1, Math.min(minHByScreen, state.dragStartH || node.h));
 
     let left = node.x;
     let top = node.y;

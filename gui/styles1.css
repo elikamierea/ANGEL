@@ -524,6 +524,27 @@ body.dragging-select-none, body.dragging-select-none * {
   color: var(--validation-warn);
   font-weight: 600;
 }
+.agent-model-cli-install-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  font-size: 12px;
+  color: var(--validation-warn, #d08a3a);
+}
+.agent-model-cli-install-hint.hidden { display: none; }
+.build-tools-steps {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.build-tools-url {
+  font-family: var(--mono-font, ui-monospace, monospace);
+  font-size: 12px;
+  word-break: break-all;
+  user-select: all;
+}
 .usage-window {
   padding: 6px 0;
 }

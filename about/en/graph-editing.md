@@ -179,7 +179,7 @@ Automatic layout is usually good for organizing structure first, but it will not
 - `stroke style`
 - `arrow`
 
-### Resource bindings
+### Resource references
 
 - Add or remove `resourceBindings` in the right-side panel
 

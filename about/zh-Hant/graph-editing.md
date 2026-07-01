@@ -179,7 +179,7 @@ Auto Layout 使用 ELK 來自動整理節點配置。
 - `stroke style`
 - `arrow`
 
-### 資源繫結
+### 資源引用
 
 - 在右側面板新增/移除 `resourceBindings`
 

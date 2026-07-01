@@ -7,6 +7,7 @@ export function createInteractionPointerUp(deps) {
     edges,
     CREATE_NODE_CAMERA_WIDTH_RATIO,
     CREATE_NODE_ASPECT_RATIO,
+    MIN_NODE_SCREEN_PX,
     MIRROR_DEFAULT_DETAIL,
     pushTransformPreviewCheckpoint,
     pushHistory,
@@ -107,6 +108,11 @@ export function createInteractionPointerUp(deps) {
         };
       }
 
+      // Enforce the shared minimum node size (32 screen px) on creation.
+      const minCreateWorld = MIN_NODE_SCREEN_PX / state.zoom;
+      draftRect.w = Math.max(minCreateWorld, draftRect.w);
+      draftRect.h = Math.max(minCreateWorld, draftRect.h);
+
       if (!isPlacementLegal(draftRect)) {
         setStatus('Create cancelled: illegal overlap (must be disjoint or containment)');
       } else {
@@ -125,7 +131,7 @@ export function createInteractionPointerUp(deps) {
           dirty: true,
           unbound: true,
           revision: 1,
-          colorIndex: 0,
+          colorIndex: container ? normalizeColorIndex(container.colorIndex) : 0,
           x: draftRect.x,
           y: draftRect.y,
           w: draftRect.w,
