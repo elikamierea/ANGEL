@@ -1,0 +1,2 @@
+# Exclude bundled CMake toolchain from GitHub language statistics
+tools/cmake/** linguist-vendored
