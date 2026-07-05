@@ -6,6 +6,7 @@ export function createInspectorUI(deps) {
     dom,
     normalizeSelectedNodeIds,
     getSelectedNode,
+    getSelectedNodesOrdered,
     getSelectedEdge,
     getNodeLayerContent,
     hasConflict,
@@ -29,6 +30,9 @@ export function createInspectorUI(deps) {
   const {
     emptySelection,
     editorForm,
+    multiEditorForm,
+    multiFieldColorIndex,
+    multiColorIndexSwatch,
     edgeEditor,
     blockBindingPanel,
     edgeList,
@@ -75,26 +79,30 @@ export function createInspectorUI(deps) {
   // Paint each dropdown option with its palette color so the color is visible
   // while choosing. The closed <select> can't reliably show the option color,
   // so a live swatch next to it reflects the current selection.
-  function paintColorIndexOptions() {
-    if (!fieldColorIndex) return;
-    Array.from(fieldColorIndex.options).forEach((opt) => {
+  function paintColorIndexOptions(selectEl = fieldColorIndex) {
+    if (!selectEl) return;
+    Array.from(selectEl.options).forEach((opt) => {
       const { fill } = colorForIndex(opt.value);
       opt.style.backgroundColor = fill;
       opt.style.color = contrastText(fill);
     });
   }
 
-  function updateColorIndexSwatch(idx) {
-    if (!colorIndexSwatch) return;
+  function updateColorIndexSwatch(idx, swatchEl = colorIndexSwatch) {
+    if (!swatchEl) return;
     const { fill, stroke } = colorForIndex(idx);
-    colorIndexSwatch.style.backgroundColor = fill;
-    colorIndexSwatch.style.borderColor = stroke;
+    swatchEl.style.backgroundColor = fill;
+    swatchEl.style.borderColor = stroke;
   }
 
   if (fieldColorIndex) {
     fieldColorIndex.addEventListener('input', () => updateColorIndexSwatch(fieldColorIndex.value));
   }
+  if (multiFieldColorIndex) {
+    multiFieldColorIndex.addEventListener('input', () => updateColorIndexSwatch(multiFieldColorIndex.value, multiColorIndexSwatch));
+  }
   paintColorIndexOptions();
+  paintColorIndexOptions(multiFieldColorIndex);
 
   function setEditorLocked(locked, message) {
     const controls = [fieldDetail, fieldStatus, fieldColorIndex].filter(Boolean);
@@ -114,10 +122,21 @@ export function createInspectorUI(deps) {
     editorForm.classList.toggle('hidden', !hasNodeSelection);
     edgeEditor.classList.toggle('hidden', !selectedEdge);
     blockBindingPanel.classList.toggle('hidden', !hasNodeSelection);
+    if (multiEditorForm) multiEditorForm.classList.toggle('hidden', selectedCount <= 1);
 
     if (selectedCount > 1) {
       emptySelection.classList.remove('hidden');
       emptySelection.innerHTML = `<strong>${t('inspector.multiSelect.title', { count: selectedCount })}</strong><p>${t('inspector.multiSelect.body')}</p>`;
+      if (multiFieldColorIndex) {
+        // Editable nodes only (mirrors derive color from their source; conflicted nodes are locked).
+        const editable = getSelectedNodesOrdered().filter((n) => !isMirrorNode(n) && !hasConflict(n.id));
+        const first = editable[0];
+        const displayIdx = normalizeColorIndex(first ? first.colorIndex : 0);
+        multiFieldColorIndex.value = String(displayIdx);
+        multiFieldColorIndex.disabled = editable.length === 0;
+        paintColorIndexOptions(multiFieldColorIndex);
+        updateColorIndexSwatch(displayIdx, multiColorIndexSwatch);
+      }
       edgeList.innerHTML = '';
       if (validationList) validationList.innerHTML = '';
       edgePathStyleField.value = 'straight';
@@ -539,6 +558,34 @@ export function createInspectorUI(deps) {
     render();
   }
 
+  function applyMultiNodeColorChange() {
+    if (!multiFieldColorIndex) return;
+    // Batch color only applies to editable nodes: skip mirrors (color follows their
+    // source) and conflicted nodes (locked), matching single-node save behavior.
+    const editable = getSelectedNodesOrdered().filter((n) => !isMirrorNode(n) && !hasConflict(n.id));
+    if (editable.length === 0) return;
+
+    const nextColorIndex = normalizeColorIndex(multiFieldColorIndex.value);
+    const targets = editable.filter((n) => normalizeColorIndex(n.colorIndex) !== nextColorIndex);
+    if (targets.length === 0) {
+      updateColorIndexSwatch(nextColorIndex, multiColorIndexSwatch);
+      return;
+    }
+
+    pushHistory();
+    for (const node of targets) {
+      node.colorIndex = nextColorIndex;
+      node.dirty = true;
+      node.revision += 1;
+    }
+
+    updateColorIndexSwatch(nextColorIndex, multiColorIndexSwatch);
+    setStatus(t('inspector.status.multiColorApplied', { count: targets.length }));
+    updateTopbar();
+    rebuildSidebar();
+    render();
+  }
+
   return {
     renderRightPanel,
     setEditorLocked,
@@ -546,5 +593,6 @@ export function createInspectorUI(deps) {
     updateEdgeByParams,
     addResourceBindingFromInspector,
     applySelectedNodeChanges,
+    applyMultiNodeColorChange,
   };
 }

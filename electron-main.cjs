@@ -1714,8 +1714,14 @@ function resolveCliLauncher(bin) {
 // private localhost HTTP bridge, which relays each tool call to the renderer over
 // IPC. Bound to 127.0.0.1 + a per-session bearer token so only our server can
 // drive graph mutations.
-let mcpBridge = null; // { server, port, token }
+let mcpBridge = null; // { server, port, tokens } — set once the singleton server is listening
+let mcpBridgePromise = null; // cached so CONCURRENT run launches share one server (no listen race)
 const pendingBridgeReqs = new Map(); // reqId -> { resolve, reject, timer }
+
+// Build/run route through ANGEL's Execute chain and legitimately run for many
+// minutes; a fixed relay timeout would return an error to the agent while the
+// build keeps going (and drop the eventual result). So these get NO timeout.
+const BRIDGE_NO_TIMEOUT_TOOLS = new Set(['compile_project', 'run_project']);
 
 // main → renderer request/response: push the op and await the matching result.
 function relayToRenderer(op, tool, args, agentId) {
@@ -1723,10 +1729,13 @@ function relayToRenderer(op, tool, args, agentId) {
     const wc = mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null;
     if (!wc) { reject(new Error('renderer unavailable')); return; }
     const reqId = crypto.randomUUID();
-    const timer = setTimeout(() => {
-      pendingBridgeReqs.delete(reqId);
-      reject(new Error('renderer relay timeout'));
-    }, 60000);
+    let timer = null;
+    if (!(op === 'call' && BRIDGE_NO_TIMEOUT_TOOLS.has(String(tool || '')))) {
+      timer = setTimeout(() => {
+        pendingBridgeReqs.delete(reqId);
+        reject(new Error('renderer relay timeout'));
+      }, 60000);
+    }
     pendingBridgeReqs.set(reqId, { resolve, reject, timer });
     wc.send('angelMcp:invoke', { reqId, op, tool, args, agentId: String(agentId || '') });
   });
@@ -1789,8 +1798,11 @@ async function handleBridgeRequest(req, res, bridge) {
 }
 
 function ensureMcpBridge() {
-  if (mcpBridge) return Promise.resolve(mcpBridge);
-  return new Promise((resolve, reject) => {
+  // Cache the PROMISE, not the resolved bridge: concurrent launches (several
+  // agents starting at once) must share one server, or each would spin up its
+  // own — and run-close would then unregister tokens from the wrong instance.
+  if (mcpBridgePromise) return mcpBridgePromise;
+  mcpBridgePromise = new Promise((resolve, reject) => {
     // Singleton server/port for the app; per-run tokens live in `tokens` (token →
     // agentId). The server closes over the bridge object so it sees registrations.
     const bridge = { server: null, port: 0, tokens: new Map() };
@@ -1803,6 +1815,32 @@ function ensureMcpBridge() {
       resolve(mcpBridge);
     });
   });
+  // A failed listen must not poison every later run — clear the cache so the
+  // next launch retries.
+  mcpBridgePromise.catch(() => { mcpBridgePromise = null; });
+  return mcpBridgePromise;
+}
+
+// Per-run MCP config files normally die with their run ('close'/'error' above),
+// but an app crash strands them (they embed a bridge token — dead once the app
+// exits, but still litter). Sweep old ones at startup; the >24h age guard keeps
+// us from touching files owned by another ANGEL instance that is still running.
+function sweepStaleMcpConfigs() {
+  const maxAgeMs = 24 * 60 * 60 * 1000;
+  const sweep = (dir, namePattern) => {
+    let names;
+    try { names = fsSync.readdirSync(dir); } catch (_) { return; }
+    for (const name of names) {
+      if (!namePattern.test(name)) continue;
+      const full = path.join(dir, name);
+      try {
+        const st = fsSync.statSync(full);
+        if (Date.now() - st.mtimeMs > maxAgeMs) fsSync.unlinkSync(full);
+      } catch (_) { /* best effort */ }
+    }
+  };
+  sweep(os.tmpdir(), /^angel-mcp-[0-9a-f-]+\.json$/i);
+  sweep(process.env.CODEX_HOME || path.join(os.homedir(), '.codex'), /^angel-mcp-[0-9a-f-]+\.config\.toml$/i);
 }
 
 // Mint a per-run bearer token bound to the run's agentId (call at launch); drop it
@@ -2122,6 +2160,9 @@ ipcMain.handle('cliAgent:start', async (event, payload) => {
 
   child.on('error', (err) => {
     activeCliAgentRuns.delete(runId);
+    // 'close' may never fire after a spawn failure, so clean up here too (the
+    // config file embeds this run's bridge token). Double-unlink is harmless.
+    if (mcpConfigPath) { try { fsSync.unlinkSync(mcpConfigPath); } catch (_) { /* best effort */ } }
     if (mcpRunToken) unregisterBridgeRun(mcpBridge, mcpRunToken);
     send({ kind: 'spawnError', message: err?.message || String(err) });
   });
@@ -2145,6 +2186,7 @@ app.whenReady().then(() => {
   });
 
   createWindow();
+  sweepStaleMcpConfigs();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

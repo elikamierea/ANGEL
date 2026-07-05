@@ -29,8 +29,17 @@ const BRIDGE_MODE = Boolean(BRIDGE_URL && BRIDGE_TOKEN);
 // is per-run and bound to the agentId on the ANGEL side, so the bridge resolves the
 // caller's agent authoritatively from the token (a run can't spoof another agent).
 
+// Tools the bridge runs WITHOUT a relay timeout (project builds take minutes);
+// mirror that here by disabling the HTTP timeout for them. Must stay in sync
+// with BRIDGE_NO_TIMEOUT_TOOLS in electron-main.cjs.
+const NO_TIMEOUT_TOOLS = new Set(['compile_project', 'run_project']);
+// Slightly above the bridge's own 60s renderer-relay timeout, so the bridge's
+// (more precise) error normally wins and this only catches a hung bridge.
+const BRIDGE_TIMEOUT_MS = 65000;
+
 // Minimal JSON HTTP client to ANGEL's private localhost bridge (bearer auth).
-function bridgeRequest(method, routePath, body) {
+// timeoutMs = 0 disables the timeout (long-running build tools).
+function bridgeRequest(method, routePath, body, timeoutMs = BRIDGE_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     let u;
     try { u = new URL(routePath, BRIDGE_URL); } catch (e) { return reject(e); }
@@ -56,6 +65,14 @@ function bridgeRequest(method, routePath, body) {
       });
     });
     req.on('error', reject);
+    if (timeoutMs > 0) {
+      // Idle-socket timeout ≈ total here (the bridge sends nothing until done).
+      // Guards against a hung bridge (e.g. renderer reloaded mid-call), which
+      // would otherwise hang this CLI tool call forever.
+      req.setTimeout(timeoutMs, () => {
+        req.destroy(new Error(`bridge ${method} ${routePath} timed out after ${timeoutMs}ms`));
+      });
+    }
     if (payload) req.write(payload);
     req.end();
   });
@@ -217,7 +234,8 @@ async function handle(msg) {
       const toolName = String(params?.name || '');
       if (BRIDGE_MODE) {
         try {
-          const r = await bridgeRequest('POST', '/invoke', { tool: toolName, args: params?.arguments || {} });
+          const timeoutMs = NO_TIMEOUT_TOOLS.has(toolName) ? 0 : BRIDGE_TIMEOUT_MS;
+          const r = await bridgeRequest('POST', '/invoke', { tool: toolName, args: params?.arguments || {} }, timeoutMs);
           const ok = Boolean(r) && r.ok !== false && !r.error;
           const out = ok ? (r.result !== undefined ? r.result : r) : (r.error || r);
           reply(id, { content: [{ type: 'text', text: JSON.stringify(out, null, 2) }], isError: !ok });

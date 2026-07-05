@@ -351,6 +351,9 @@ const rightPanel = document.getElementById('right-panel');
 const rightPanelResize = document.getElementById('right-panel-resize');
 const emptySelection = document.getElementById('empty-selection');
 const editorForm = document.getElementById('editor-form');
+const multiEditorForm = document.getElementById('multi-editor-form');
+const multiFieldColorIndex = document.getElementById('multi-field-color-index');
+const multiColorIndexSwatch = document.getElementById('multi-color-index-swatch');
 const fieldName = document.getElementById('field-name');
 const fieldSummary = document.getElementById('field-summary');
 const fieldDetail = document.getElementById('field-detail');
@@ -950,6 +953,7 @@ let _setEditorLockedImpl = () => {};
 let _applyEdgeEditorChangesImpl = () => {};
 let _addResourceBindingFromInspectorImpl = () => {};
 let _applySelectedNodeChangesImpl = () => {};
+let _applyMultiNodeColorChangeImpl = () => {};
 let _renderAgentStatusBarImpl = () => {};
 let _renderAgentSidebarImpl = () => {};
 let _renderAgentTimelineImpl = () => {};
@@ -1096,6 +1100,7 @@ function setEditorLocked(...args) { return _setEditorLockedImpl(...args); }
 function applyEdgeEditorChanges(...args) { return _applyEdgeEditorChangesImpl(...args); }
 function addResourceBindingFromInspector(...args) { return _addResourceBindingFromInspectorImpl(...args); }
 function applySelectedNodeChanges(...args) { return _applySelectedNodeChangesImpl(...args); }
+function applyMultiNodeColorChange(...args) { return _applyMultiNodeColorChangeImpl(...args); }
 function renderAgentStatusBar(...args) { return _renderAgentStatusBarImpl(...args); }
 function renderAgentSidebar(...args) { return _renderAgentSidebarImpl(...args); }
 function renderAgentTimeline(...args) { return _renderAgentTimelineImpl(...args); }
@@ -3302,6 +3307,9 @@ const inspectorUI = createInspectorUI({
   dom: {
     emptySelection,
     editorForm,
+    multiEditorForm,
+    multiFieldColorIndex,
+    multiColorIndexSwatch,
     edgeEditor,
     blockBindingPanel,
     edgeList,
@@ -3330,6 +3338,7 @@ const inspectorUI = createInspectorUI({
   graphPalette,
   normalizeSelectedNodeIds,
   getSelectedNode,
+  getSelectedNodesOrdered,
   getSelectedEdge,
   getNodeLayerContent,
   hasConflict,
@@ -3355,6 +3364,7 @@ _applyEdgeEditorChangesImpl = inspectorUI.applyEdgeEditorChanges;
 _updateEdgeByParamsImpl = inspectorUI.updateEdgeByParams;
 _addResourceBindingFromInspectorImpl = inspectorUI.addResourceBindingFromInspector;
 _applySelectedNodeChangesImpl = inspectorUI.applySelectedNodeChanges;
+_applyMultiNodeColorChangeImpl = inspectorUI.applyMultiNodeColorChange;
 
 async function applyBackendProject(result) {
   if (!result) return;
@@ -4275,6 +4285,9 @@ if (fieldStatus) fieldStatus.addEventListener('change', applySelectedNodeChanges
 if (fieldColorIndex) {
   fieldColorIndex.addEventListener('change', applySelectedNodeChanges);
   fieldColorIndex.addEventListener('blur', applySelectedNodeChanges);
+}
+if (multiFieldColorIndex) {
+  multiFieldColorIndex.addEventListener('change', applyMultiNodeColorChange);
 }
 
 const agentChatStateManager = createAgentChatStateManager({
