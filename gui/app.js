@@ -213,7 +213,9 @@ const languageClose = document.getElementById('language-close');
 const languageCancel = document.getElementById('language-cancel');
 const languageSave = document.getElementById('language-save');
 const agentModelBackend = document.getElementById('agent-model-backend');
-const agentModelCliModel = document.getElementById('agent-model-cli-model');
+const agentModelCliProfile = document.getElementById('agent-model-cli-profile');
+const agentModelCliProfileRow = document.getElementById('agent-model-cli-profile-row');
+const agentModelCliModelName = document.getElementById('agent-model-cli-model-name');
 const agentModelCliModelRow = document.getElementById('agent-model-cli-model-row');
 const agentModelCliInstallHint = document.getElementById('agent-model-cli-install-hint');
 const agentModelCliInstallMsg = document.getElementById('agent-model-cli-install-msg');
@@ -1957,7 +1959,9 @@ const agentModelSettingsController = createAgentModelSettingsController({
   dom: {
     agentModelModal,
     agentModelBackend,
-    agentModelCliModel,
+    agentModelCliProfile,
+    agentModelCliProfileRow,
+    agentModelCliModelName,
     agentModelCliModelRow,
     agentModelCliInstallHint,
     agentModelCliInstallMsg,

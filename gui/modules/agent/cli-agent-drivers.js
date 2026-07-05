@@ -162,6 +162,12 @@ const claudeCodeDriver = {
     } else {
       args.push('--permission-mode', 'acceptEdits');
     }
+    // Per-profile model override (the headless twin of /model). Accepts aliases
+    // (opus/sonnet/haiku) or full ids; empty = the CLI's own default. Passed on
+    // EVERY launch — headless runs don't remember the previous run's flag.
+    const model = asString(profile.model).trim();
+    if (model) args.push('--model', model);
+
     // Per-profile extra args (domestic presets generally need none).
     if (Array.isArray(profile.extraArgs)) {
       for (const a of profile.extraArgs) if (asString(a)) args.push(String(a));

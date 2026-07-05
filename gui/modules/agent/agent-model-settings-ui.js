@@ -296,13 +296,36 @@ export function createAgentModelSettingsController(deps) {
     }
   }
 
-  // --- Backend selector (two levels) -----------------------------------------
+  // --- Backend selector (three levels) ----------------------------------------
   // Level 1 (agentModelBackend) picks a *family*: '' = the API-key (HTTP) line, or
-  // a CLI driver id ('claude-code' / 'codex'). Level 2 (agentModelCliModel) picks
+  // a CLI driver id ('claude-code' / 'codex'). Level 2 (agentModelCliProfile) picks
   // which profile inside a multi-profile family (e.g. Claude Code -> subscription /
   // Kimi / GLM / DeepSeek); it's hidden for HTTP and for single-profile families,
-  // which auto-select their one profile. The effective backend id (what gets saved
-  // as activeCliProfileId) is derived by getSelectedBackendId().
+  // which auto-select their one profile. Level 3 (agentModelCliModelName) is the
+  // selected profile's model override — the headless twin of the CLI's /model.
+  // The effective backend id (what gets saved as activeCliProfileId) is derived
+  // by getSelectedBackendId().
+
+  // Model choices per built-in profile. Values are what the CLI's --model/-m
+  // accepts (Claude: version-stable aliases, mirroring its /model picker; the
+  // 1M-context variant uses the documented `sonnet[1m]` alias form); labels keep
+  // the human name + version. '' (the first option) = the CLI's own default. A
+  // saved custom id not in this list is preserved as an extra option, so ids
+  // hand-edited into the settings file survive the dialog round-trip.
+  // (List refreshed 2026-07 against Claude Code's /model.)
+  const CLI_MODEL_SUGGESTIONS = {
+    'claude-sub': [
+      { value: 'sonnet', label: 'Sonnet 4.6' },
+      { value: 'sonnet[1m]', label: 'Sonnet 4.6 (1M context)' },
+      { value: 'fable', label: 'Fable 5' },
+      { value: 'opus', label: 'Opus 4.8' },
+      { value: 'haiku', label: 'Haiku 4.5' },
+    ],
+    'kimi-k2': ['kimi-k2-turbo-preview', 'kimi-k2-thinking-turbo', 'kimi-k2-0905-preview'],
+    glm: ['glm-4.6', 'glm-4.5-air'],
+    deepseek: ['deepseek-chat', 'deepseek-reasoner'],
+    'codex-sub': ['gpt-5.1-codex-max', 'gpt-5.1-codex', 'gpt-5.1-codex-mini'],
+  };
 
   // Per-driver install guidance (link-based, mirroring the C++ build-tools modal).
   const CLI_INSTALL_INFO = {
@@ -357,14 +380,14 @@ export function createAgentModelSettingsController(deps) {
       option.selected = driverId === activeFamily;
       dom.agentModelBackend.appendChild(option);
     }
-    renderCliModelOptions(settings, active);
+    renderCliProfileOptions(settings, active);
   }
 
-  // Level-2 model select: populated from the selected family's profiles. Hidden
+  // Level-2 profile select: populated from the selected family's profiles. Hidden
   // when no CLI family is selected or the family has a single profile.
-  function renderCliModelOptions(settings, activeProfileId) {
-    const sel = dom.agentModelCliModel;
-    const row = dom.agentModelCliModelRow;
+  function renderCliProfileOptions(settings, activeProfileId) {
+    const sel = dom.agentModelCliProfile;
+    const row = dom.agentModelCliProfileRow;
     if (!sel) return;
     const family = dom.agentModelBackend?.value || '';
     const profiles = family ? cliProfilesOfDriver(family, settings) : [];
@@ -390,13 +413,40 @@ export function createAgentModelSettingsController(deps) {
     if (!family) return '';
     const profiles = cliProfilesOfDriver(family, loadSettings());
     if (profiles.length <= 1) return profiles[0]?.id || '';
-    return dom.agentModelCliModel?.value || profiles[0]?.id || '';
+    return dom.agentModelCliProfile?.value || profiles[0]?.id || '';
+  }
+
+  // Level-3 model select for the selected profile. Shown whenever a CLI profile
+  // is active (even single-profile families like Codex). First option '' = the
+  // CLI's own default model.
+  function renderCliModelName(settings) {
+    const sel = dom.agentModelCliModelName;
+    if (!sel) return;
+    const id = getSelectedBackendId();
+    const profile = id ? cliProfilesList(settings).find((p) => p.id === id) : null;
+    if (dom.agentModelCliModelRow) dom.agentModelCliModelRow.classList.toggle('hidden', !profile);
+    if (!profile) return;
+    const saved = String(profile.model || '');
+    sel.innerHTML = '';
+    const addOption = (value, label) => {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      option.selected = value === saved;
+      sel.appendChild(option);
+    };
+    addOption('', t('modal.agentModel.cliModelDefault'));
+    const entries = (CLI_MODEL_SUGGESTIONS[id] || [])
+      .map((m) => (typeof m === 'string' ? { value: m, label: m } : m));
+    for (const m of entries) addOption(m.value, m.label);
+    if (saved && !entries.some((m) => m.value === saved)) addOption(saved, saved);
   }
 
   function refreshCliTokenRow() {
     const family = dom.agentModelBackend?.value || '';
     const settings = loadSettings();
-    renderCliModelOptions(settings, getSelectedBackendId());
+    renderCliProfileOptions(settings, getSelectedBackendId());
+    renderCliModelName(settings);
     const id = getSelectedBackendId();
     const cliActive = Boolean(family);
 
@@ -669,8 +719,8 @@ export function createAgentModelSettingsController(deps) {
     if (dom.agentModelBackend) {
       dom.agentModelBackend.addEventListener('change', () => refreshCliTokenRow());
     }
-    if (dom.agentModelCliModel) {
-      dom.agentModelCliModel.addEventListener('change', () => refreshCliTokenRow());
+    if (dom.agentModelCliProfile) {
+      dom.agentModelCliProfile.addEventListener('change', () => refreshCliTokenRow());
     }
     if (dom.agentModelCliInstallOpen) {
       dom.agentModelCliInstallOpen.addEventListener('click', () => {
@@ -883,20 +933,28 @@ export function createAgentModelSettingsController(deps) {
         // and the auth token for the selected domestic CLI profile.
         const backendId = dom.agentModelBackend ? getSelectedBackendId() : String(current.activeCliProfileId || '');
         next.activeCliProfileId = backendId;
+        const cliModelVal = String(dom.agentModelCliModelName?.value || '').trim();
         if (backendId) {
           const tokenVal = String(dom.agentModelCliToken?.value || '').trim();
-          next.cliProfiles = (current.cliProfiles || []).map((p) => (
-            p && p.id === backendId && p.env && Object.prototype.hasOwnProperty.call(p.env, 'ANTHROPIC_AUTH_TOKEN')
-              ? { ...p, env: { ...p.env, ANTHROPIC_AUTH_TOKEN: tokenVal } }
-              : p
-          ));
+          next.cliProfiles = (current.cliProfiles || []).map((p) => {
+            if (!p || p.id !== backendId) return p;
+            // Selected profile: persist its model override ('' = CLI default) and,
+            // for domestic token-based profiles, the auth token.
+            const patched = { ...p, model: cliModelVal };
+            if (p.env && Object.prototype.hasOwnProperty.call(p.env, 'ANTHROPIC_AUTH_TOKEN')) {
+              patched.env = { ...p.env, ANTHROPIC_AUTH_TOKEN: tokenVal };
+            }
+            return patched;
+          });
         }
 
         try {
           const prevBackendId = String(current.activeCliProfileId || '');
           await saveSettings(next);
           closeModal();
-          const backendLabel = backendId ? `CLI:${backendId}` : `${providerId} / ${method} / ${model}`;
+          const backendLabel = backendId
+            ? `CLI:${backendId}${cliModelVal ? ` @ ${cliModelVal}` : ''}`
+            : `${providerId} / ${method} / ${model}`;
           setStatus(`Agent model saved: ${backendLabel}`);
           // Switched to a different CLI source → announce + offer to copy memory.
           if (backendId && backendId !== prevBackendId) {

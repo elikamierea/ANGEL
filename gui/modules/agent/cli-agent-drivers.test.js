@@ -65,6 +65,16 @@ test('buildLaunch injects profile env (domestic provider override) and extraArgs
   assert.ok(args.includes('--model') && args.includes('glm-4.6'));
 });
 
+test('buildLaunch passes the profile model override as --model', () => {
+  const { args } = claudeCodeDriver.buildLaunch({ task: 't', profile: { model: 'opus' } });
+  assert.equal(args[args.indexOf('--model') + 1], 'opus');
+});
+
+test('buildLaunch omits --model when the profile has no model override', () => {
+  const { args } = claudeCodeDriver.buildLaunch({ task: 't', profile: { model: '' } });
+  assert.ok(!args.includes('--model'));
+});
+
 test('buildLaunch appends an appended system prompt', () => {
   const { args } = claudeCodeDriver.buildLaunch({ task: 't', appendSystemPrompt: 'You are the designer.' });
   assert.equal(args[args.indexOf('--append-system-prompt') + 1], 'You are the designer.');
