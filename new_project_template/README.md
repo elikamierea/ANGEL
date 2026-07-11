@@ -196,6 +196,8 @@ void draw_sprite(float x, float y, const Sprite& sprite, int frame,
 
 **Keep in mind that frame index starts from 0, and that smaller depth means earlier execution.**
 
+All rotation parameters (`rotationRad`, including `ObjectBase::angle`) are in radians, and positive values rotate clockwise on screen (y-down coordinates).
+
 Text drawing is also available through `ANGEL.h`:
 
 ```cpp
