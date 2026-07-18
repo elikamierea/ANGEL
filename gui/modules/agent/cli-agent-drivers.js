@@ -385,11 +385,7 @@ const codexDriver = {
     const task = asString(params.task);
     const stdin = appended ? `${appended}\n\n${task}` : task;
 
-    const args = ['exec'];
-    if (asString(params.sessionId)) {
-      args.push('resume', asString(params.sessionId));
-    }
-    args.push('--json', '--skip-git-repo-check');
+    const args = ['exec', '--json', '--skip-git-repo-check'];
 
     // Autonomy gate (mirrors the Claude driver). Non-interactive writes/MCP need
     // full bypass; otherwise allow workspace writes within the sandbox.
@@ -404,15 +400,26 @@ const codexDriver = {
       args.push('--add-dir', String(params.projectRoot));
     }
 
+    if (Array.isArray(profile.extraArgs)) {
+      for (const a of profile.extraArgs) if (asString(a)) args.push(String(a));
+    }
+
+    // The `resume` subcommand must come AFTER every exec-level option: it only
+    // accepts its own option subset, and `-s` / `--add-dir` placed after `resume`
+    // are hard clap errors (exit 2) — which killed every resume instantly and got
+    // misread upstream as an expired session. Exec-level options BEFORE the
+    // subcommand are accepted (verified live against codex-cli 0.142.1).
+    if (asString(params.sessionId)) {
+      args.push('resume', asString(params.sessionId));
+    }
+
+    // -i / -m exist in both exec's and resume's option sets, so after the
+    // subcommand they're valid on both paths.
     const imagePaths = Array.isArray(params.imagePaths) ? params.imagePaths.filter(Boolean) : [];
     for (const p of imagePaths) args.push('-i', String(p));
 
     const model = asString(profile.model).trim();
     if (model) args.push('-m', model);
-
-    if (Array.isArray(profile.extraArgs)) {
-      for (const a of profile.extraArgs) if (asString(a)) args.push(String(a));
-    }
 
     // Trailing '-' = read the prompt from stdin.
     args.push('-');

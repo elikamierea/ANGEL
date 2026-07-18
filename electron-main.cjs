@@ -2028,11 +2028,23 @@ ipcMain.handle('cliAgent:usageWindows', async (_event, payload) => {
 // running, so the UI "stop" silently does nothing. taskkill /T kills the whole
 // process tree, /F forces it. Claude (a real .exe, shell:false) is fine either way
 // but tree-killing is harmless there too (also reaps any tool subprocesses).
+// taskkill must snapshot the tree while the ROOT is still alive: calling
+// child.kill() concurrently kills the wrapper first, taskkill then exits 128
+// ("process not found") having killed NOTHING, and the orphaned codex.exe keeps
+// running while holding our stdout pipe — so 'close' never fires and the run
+// looks unstoppable (reproduced live). Serialize: child.kill() only runs as a
+// fallback after taskkill has finished.
 function killCliRun(child) {
   if (!child) return;
   const pid = child.pid;
   if (process.platform === 'win32' && pid) {
-    try { spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true }); } catch (_) { /* fall through to kill() */ }
+    try {
+      const tk = spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true });
+      const fallbackKill = () => { try { child.kill(); } catch (_) { /* already gone */ } };
+      tk.on('error', fallbackKill);
+      tk.on('close', fallbackKill);
+      return;
+    } catch (_) { /* fall through to kill() */ }
   }
   try { child.kill(); } catch (_) { /* already gone */ }
 }
@@ -2128,9 +2140,10 @@ ipcMain.handle('cliAgent:start', async (event, payload) => {
       mcpConfigPath = path.join(codexHome, `${profileName}.config.toml`);
       fsSync.mkdirSync(codexHome, { recursive: true });
       fsSync.writeFileSync(mcpConfigPath, toml, 'utf-8');
-      // codex options must precede the trailing stdin-prompt positional ('-').
-      if (args[args.length - 1] === '-') args.splice(args.length - 1, 0, '--profile', profileName);
-      else args.push('--profile', profileName);
+      // Exec-level option: must precede a possible `resume` subcommand (which
+      // rejects options it doesn't define itself); right after `exec` is always
+      // safe, and still ahead of the trailing stdin-prompt positional ('-').
+      args.splice(1, 0, '--profile', profileName);
     } catch (_) {
       mcpConfigPath = '';
     }

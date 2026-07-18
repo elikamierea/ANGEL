@@ -187,10 +187,10 @@ export function createCliAgentRuntime(deps = {}) {
     const resumeId = decideResume(prior, profile, agentDir);
 
     // One spawn attempt. ALWAYS resolves an outcome (never rejects); the
-    // orchestrator below decides on retry. A successful resume always produces a
-    // `final` event (Claude re-emits init too; Codex emits no thread.started but
-    // still a turn.completed), so `attemptResumeId && !finalEvent` ⇒ the stored
-    // session was gone → start fresh.
+    // orchestrator below decides on retry. A successful resume always re-emits a
+    // session event (Claude re-emits init; Codex re-emits thread.started with the
+    // same thread id — verified live on 0.142.1) and produces a `final` event, so
+    // a resume with neither ⇒ the stored session was gone → start fresh.
     const runAttempt = (attemptResumeId) => new Promise((resolveOutcome) => {
       const launch = driver.buildLaunch({
         task: String(params?.prompt || ''),
@@ -206,8 +206,9 @@ export function createCliAgentRuntime(deps = {}) {
       let unsubscribe = null;
       let onAbort = null;
       let emittedText = false;
-      // Seed with the resume id so a successful resume still saves its session (Codex
-      // resume re-emits no session event); a fresh attempt starts empty and captures one.
+      // Seed with the resume id so a successful resume still saves its session even
+      // if the CLI's re-emitted session event were ever missed; a fresh attempt
+      // starts empty and captures one.
       let capturedSessionId = attemptResumeId || '';
       let capturedModel = model;
       let finalEvent = null;
@@ -317,9 +318,9 @@ export function createCliAgentRuntime(deps = {}) {
             return;
           }
           // A resume that never established a session and produced no usable result
-          // (Codex: no turn; Claude: an error_during_execution final) ⇒ the stored
-          // session was gone. A successful resume always establishes a session
-          // (Claude) or yields a non-error final (Codex), so this won't false-trigger.
+          // ⇒ the stored session was gone (a missing-session resume exits non-zero
+          // with only a stderr message, no JSON events). A successful resume always
+          // re-emits its session event, so this won't false-trigger.
           if (attemptResumeId && !sessionEverCaptured && (!finalEvent || finalEvent.isError)) {
             settleOnce({ resumeFailed: true });
           } else if (data.code !== 0 && !finalEvent) {

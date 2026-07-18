@@ -245,11 +245,18 @@ test('both drivers add --add-dir for the project root (per-agent cwd)', () => {
   assert.ok(!claudeCodeDriver.buildLaunch({ task: 't' }).args.includes('--add-dir'));
 });
 
-test('codex buildLaunch: resume is a subcommand', () => {
-  const { args } = codexDriver.buildLaunch({ task: 't', sessionId: 'th-9' });
+test('codex buildLaunch: resume is a subcommand placed after every exec-level option', () => {
+  const { args } = codexDriver.buildLaunch({ task: 't', sessionId: 'th-9', projectRoot: 'F:/proj' });
   assert.equal(args[0], 'exec');
-  assert.equal(args[1], 'resume');
-  assert.equal(args[2], 'th-9');
+  const at = args.indexOf('resume');
+  assert.equal(args[at + 1], 'th-9');
+  // `exec resume` rejects exec-only options (`-s`, `--add-dir`) with a clap
+  // error, so they must all precede the subcommand.
+  assert.ok(args.indexOf('-s') < at);
+  assert.ok(args.indexOf('--add-dir') < at);
+  assert.ok(args.indexOf('--json') < at);
+  assert.ok(args.indexOf('--skip-git-repo-check') < at);
+  assert.equal(args[args.length - 1], '-');
 });
 
 test('codex buildLaunch: skip-permissions => full bypass; images => -i; model => -m', () => {
