@@ -8,7 +8,55 @@ import {
   claudeCodeDriver,
   parseCodexEvent,
   codexDriver,
+  stripShellWrapper,
 } from './cli-agent-drivers.js';
+
+// --- shell-wrapper stripping (Windows powershell paths in codex commands) ---
+
+test('stripShellWrapper: quoted powershell full path + -Command quoted', () => {
+  assert.equal(
+    stripShellWrapper('"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "Get-Content -Raw angel.json"'),
+    'Get-Content -Raw angel.json'
+  );
+});
+
+test('stripShellWrapper: pwsh with switches before -Command', () => {
+  assert.equal(
+    stripShellWrapper('pwsh -NoProfile -ExecutionPolicy Bypass -Command Get-ChildItem -Force'),
+    'Get-ChildItem -Force'
+  );
+});
+
+test('stripShellWrapper: cmd.exe /d /s /c', () => {
+  assert.equal(stripShellWrapper('cmd.exe /d /s /c "dir /b src"'), 'dir /b src');
+});
+
+test('stripShellWrapper: bash -lc', () => {
+  assert.equal(stripShellWrapper("bash -lc 'ls -la'"), 'ls -la');
+  assert.equal(stripShellWrapper('bash -l -c "npm test"'), 'npm test');
+});
+
+test('stripShellWrapper: powershell -EncodedCommand decodes base64 utf16le', () => {
+  const encoded = Buffer.from('echo hi', 'utf16le').toString('base64');
+  assert.equal(stripShellWrapper(`powershell.exe -EncodedCommand ${encoded}`), 'echo hi');
+});
+
+test('stripShellWrapper: bare commands and unknown interpreters pass through', () => {
+  assert.equal(stripShellWrapper('git status'), 'git status');
+  assert.equal(stripShellWrapper('Get-Content -Raw angel.json'), 'Get-Content -Raw angel.json');
+  assert.equal(stripShellWrapper('powershell script.ps1'), 'powershell script.ps1');
+  assert.equal(stripShellWrapper(''), '');
+});
+
+test('codex parseEvent: command_execution strips the powershell wrapper in name and args', () => {
+  const ev = parseCodexEvent({
+    type: 'item.completed',
+    item: { id: 'c9', type: 'command_execution', command: '"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "Get-ChildItem -Force"', aggregated_output: 'ok', exit_code: 0, status: 'completed' },
+  });
+  assert.equal(ev.kind, 'batch');
+  assert.equal(ev.events[0].name, '$ Get-ChildItem -Force');
+  assert.equal(ev.events[0].args.command, 'Get-ChildItem -Force');
+});
 
 // --- registry --------------------------------------------------------------
 
@@ -234,7 +282,39 @@ test('codex parseEvent: file_change -> named tool_call + tool_result batch', () 
   assert.equal(e.kind, 'batch');
   assert.deepEqual(e.events.map((x) => x.kind), ['tool_call', 'tool_result']);
   assert.equal(e.events[0].name, 'edit x'); // real path, not the generic item type
+  assert.equal(e.events[0].args.files, 'add x'); // kind+path detail for the card/modal
   assert.equal(e.events[1].toolUseId, 'item_1');
+});
+
+test('codex parseEvent: multi-file file_change -> basename-free count name + per-file kind list', () => {
+  const e = parseCodexEvent({
+    type: 'item.completed',
+    item: {
+      id: 'item_2',
+      type: 'file_change',
+      status: 'completed',
+      changes: [
+        { path: 'F:\\proj\\src\\game\\a.cpp', kind: 'update' },
+        { path: 'F:\\proj\\note.md', kind: 'add' },
+        { path: 'F:\\proj\\old.txt', kind: 'delete' },
+      ],
+    },
+  });
+  assert.equal(e.events[0].name, 'edit 3 files');
+  assert.equal(
+    e.events[0].args.files,
+    'update F:\\proj\\src\\game\\a.cpp\nadd F:\\proj\\note.md\ndelete F:\\proj\\old.txt'
+  );
+  assert.equal(e.events[1].output, e.events[0].args.files); // result mirrors the list
+});
+
+test('codex parseEvent: single-file file_change name uses the basename (full path stays in args)', () => {
+  const e = parseCodexEvent({
+    type: 'item.completed',
+    item: { id: 'item_3', type: 'file_change', status: 'completed', changes: [{ path: 'F:\\proj\\src\\game\\player.cpp', kind: 'update' }] },
+  });
+  assert.equal(e.events[0].name, 'edit player.cpp');
+  assert.equal(e.events[0].args.files, 'update F:\\proj\\src\\game\\player.cpp');
 });
 
 test('codex parseEvent: mcp_tool_call -> server.tool name + parsed args + result output', () => {

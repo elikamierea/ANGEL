@@ -775,8 +775,14 @@ export function createAgentChatUIShell(deps) {
     } else if (u.ok !== true) {
       agentTokenStats.innerHTML = usageNotice(t('agentChat.usage.unavailable'));
     } else {
-      agentTokenStats.innerHTML = usageWindowBlock(t('agentChat.usage.fiveHour'), u.fiveHour)
-        + usageWindowBlock(t('agentChat.usage.weekly'), u.weekly);
+      // Only render windows the plan actually has (Codex plans dropped the 5h
+      // window mid-2026 → weekly only; Claude subscriptions still expose both).
+      const blocks = [];
+      if (u.fiveHour) blocks.push(usageWindowBlock(t('agentChat.usage.fiveHour'), u.fiveHour));
+      if (u.weekly) blocks.push(usageWindowBlock(t('agentChat.usage.weekly'), u.weekly));
+      agentTokenStats.innerHTML = blocks.length > 0
+        ? blocks.join('')
+        : usageNotice(t('agentChat.usage.unavailable'));
     }
     maybeRefreshCliUsage(ctx);
   }

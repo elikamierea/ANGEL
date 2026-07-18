@@ -193,10 +193,71 @@ const claudeCodeDriver = {
 // a meaningful result string, so the timeline shows WHAT the agent did (a named,
 // clickable card) instead of the generic item type. Field access is defensive:
 // unknown shapes degrade to the item type rather than throwing.
+// Codex spawns the model's command through an interpreter wrapper and its exec
+// stream reports the FULL spawn line — on Windows every card led with
+// `"C:\WINDOWS\...\powershell.exe" -Command "<cmd>"` instead of the command
+// itself. Strip a recognized leading interpreter (powershell/pwsh/cmd/bash/sh/
+// zsh, bare or full-path, quoted or not) down to the inner command for display;
+// anything unrecognized passes through untouched. Pure → unit-tested.
+export function stripShellWrapper(command) {
+  const raw = asString(command).trim();
+  if (!raw) return raw;
+  const head = raw.match(/^(?:"([^"]+)"|'([^']+)'|(\S+))\s+/);
+  if (!head) return raw;
+  const exe = (head[1] || head[2] || head[3] || '').replace(/\\/g, '/').split('/').pop().toLowerCase();
+  let rest = raw.slice(head[0].length).trim();
+  const unquote = (s) => {
+    const t = s.trim();
+    return (t.length >= 2 && ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))))
+      ? t.slice(1, -1)
+      : t;
+  };
+
+  if (exe === 'powershell' || exe === 'powershell.exe' || exe === 'pwsh' || exe === 'pwsh.exe') {
+    // Skip common switches until -Command / -EncodedCommand.
+    let m;
+    while ((m = rest.match(/^-(?:nologo|noprofile|noninteractive|noexit|mta|sta|windowstyle\s+\S+|executionpolicy\s+\S+)\s+/i))) {
+      rest = rest.slice(m[0].length);
+    }
+    const enc = rest.match(/^-(?:encodedcommand|ec|e)\s+(\S+)\s*$/i);
+    if (enc) {
+      // Base64(UTF-16LE) → text, best-effort (renderer has atob, tests have Buffer).
+      try {
+        if (typeof Buffer !== 'undefined') return Buffer.from(enc[1], 'base64').toString('utf16le') || raw;
+        const bin = atob(enc[1]);
+        let out = '';
+        for (let i = 0; i + 1 < bin.length; i += 2) out += String.fromCharCode(bin.charCodeAt(i) | (bin.charCodeAt(i + 1) << 8));
+        return out || raw;
+      } catch (_) { return raw; }
+    }
+    const c = rest.match(/^-(?:command|c)\s+/i);
+    return c ? (unquote(rest.slice(c[0].length)) || raw) : raw;
+  }
+
+  if (exe === 'cmd' || exe === 'cmd.exe') {
+    let m;
+    while ((m = rest.match(/^\/(?:d|s|q|v:\S+|e:\S+)\s+/i))) rest = rest.slice(m[0].length);
+    const c = rest.match(/^\/c\s+/i);
+    return c ? (unquote(rest.slice(c[0].length)) || raw) : raw;
+  }
+
+  if (exe === 'bash' || exe === 'sh' || exe === 'zsh') {
+    let m;
+    while ((m = rest.match(/^-(?:l|i|li|il|lc|lic|c)\s+/))) {
+      const flag = m[0].trim();
+      rest = rest.slice(m[0].length);
+      if (flag.includes('c')) return unquote(rest) || raw;
+    }
+    return raw;
+  }
+
+  return raw;
+}
+
 function describeCodexAction(item, itemType) {
   const status = asString(item.status);
   if (itemType === 'command_execution') {
-    const cmd = asString(item.command);
+    const cmd = stripShellWrapper(item.command);
     const firstLine = cmd.split('\n')[0].trim();
     const name = firstLine ? `$ ${firstLine.slice(0, 80)}` : 'shell';
     const out = asString(item.aggregated_output)
@@ -210,10 +271,22 @@ function describeCodexAction(item, itemType) {
       ? raw
       : (raw && typeof raw === 'object' ? Object.entries(raw).map(([path, kind]) => ({ path, kind })) : []);
     const paths = changes.map((c) => asString(c?.path)).filter(Boolean);
-    const name = paths.length === 1 ? `edit ${paths[0]}`
+    // Codex's exec stream gives only { path, kind } per file — no diff content
+    // (verified live against 0.142.1; unified_diff exists only in its internal
+    // patch_apply protocol). Show what IS there: "kind path" per file, so the
+    // card/modal reads "update src/x.cpp / add note.md" instead of changes=[N].
+    const basename = (p) => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p;
+    const fileLines = changes
+      .map((c) => `${asString(c?.kind) || 'edit'} ${asString(c?.path)}`.trim())
+      .filter((s) => s && s !== 'edit');
+    const name = paths.length === 1 ? `edit ${basename(paths[0])}`
       : paths.length > 1 ? `edit ${paths.length} files`
       : 'file change';
-    return { name, args: { changes, status }, output: paths.join('\n') || status || 'completed' };
+    return {
+      name,
+      args: { files: fileLines.join('\n') || undefined, status },
+      output: fileLines.join('\n') || status || 'completed',
+    };
   }
   if (itemType === 'mcp_tool_call') {
     const server = asString(item.server);

@@ -141,7 +141,10 @@ export function deepMergeInto(target, source) {
   return target;
 }
 
-function summarizeToolCall(call) {
+// Exported: the CLI line (cli-agent-runtime.js) reuses this exact format so both
+// lines render tool calls identically (the "[tool] " prefix is what the chat UI
+// keys the clickable/collapsible tool-progress bubble on).
+export function summarizeToolCall(call) {
   const name = String(call?.name || 'tool');
   let args = {};
   try {

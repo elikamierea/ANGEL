@@ -12,6 +12,7 @@
 // conversation by RESUMING that session — never by replaying our projection.
 
 import { getCliAgentDriver } from './cli-agent-drivers.js';
+import { summarizeToolCall } from './agent-runtime.js';
 
 // Resume a stored CLI session only for the SAME profile (id) AND the same per-agent
 // cwd — CLIs key sessions by cwd, and a different profile means a different model/
@@ -42,6 +43,17 @@ export function normalizeSessionRecord(raw) {
     };
   }
   return empty;
+}
+
+// Format a CLI tool_call event with the SAME text the HTTP line emits for its
+// tool calls ("[tool] name(k=v, …)", summarizeToolCall). The chat UI keys the
+// tool-progress render path off the "[tool] " prefix: clickable → detail modal,
+// auto-collapse when long, and the status bar swaps it for a generic
+// "Replying..." instead of leaking the raw command line. Pure → unit-testable.
+export function toolCallProgressText(ev) {
+  let argumentsText = '{}';
+  try { argumentsText = JSON.stringify(ev?.args || {}); } catch (_) { /* keep '{}' */ }
+  return summarizeToolCall({ name: String(ev?.name || 'tool'), argumentsText });
 }
 
 function newRunId() {
@@ -136,6 +148,24 @@ export function createCliAgentRuntime(deps = {}) {
     const memoryFile = driver.memoryFile || 'CLAUDE.md';
     const memoryDirective = `你的私有长期记忆是**当前工作目录下的 ${memoryFile}**（每次会话自动加载，无需手动读取）。项目根目录的 ${memoryFile} 是所有 agent 共享的项目级记忆，也会自动加载。请在工作过程中自行维护你自己的那份 ${memoryFile}：记录你负责部分的结构、关键决策、重要信息的所在位置；保持简洁、最新；务必保留其中已有的内容。`;
     const directives = [memoryDirective];
+    // Both CLI families are shell/file-first by instinct and WILL read the on-disk
+    // angel.json if left to their own devices (observed live: codex Get-Content'd
+    // it twice) — but that file is a stale manual-save snapshot; the LIVE graph is
+    // only served through the angel MCP bridge. Say so explicitly. Codex only gets
+    // the angel MCP under skip-permissions (electron-main gates it on the bypass
+    // flag), so without it we only warn about staleness instead of mandating tools
+    // it doesn't have.
+    // CLI coding agents are exploration-happy by default (their base prompts say
+    // "understand the codebase first") and burn turns reading src/engine even
+    // though the MANUALs are authoritative. State the manual-first rule per run —
+    // it also covers existing projects whose seeded prompt.md predates the rule.
+    directives.push('写代码时以项目根目录的 README.md 与 MANUAL_*.md 为权威依据，查到对应说明后**直接实现**。**非必要不要翻阅 src/engine 框架源码**——“必要”仅限：MANUAL 未覆盖该功能 / 严格按 MANUAL 实现仍与实际行为不符 / 追查深入引擎内部的 bug。确需翻阅时只读最小相关范围，并把结论补记进记忆文件避免重复。');
+    const codexWithoutMcp = driver.id === 'codex' && !getDangerouslySkipPermissions?.();
+    if (codexWithoutMcp) {
+      directives.push('**不要把磁盘上的 angel.json 当作当前设计来读写**：它只是上次手动保存的过期快照，实时设计图不经文件系统提供。');
+    } else {
+      directives.push('思维导图（设计图）的读取与修改**必须**通过 angel MCP 工具完成（list_node / grep_node / get_node_detail / create_node / update_node / arrange 等）。**绝对不要用文件或 shell 方式直接读写 angel.json**：磁盘上的该文件只是上次手动保存的过期快照，实时图仅经 MCP 工具提供。');
+    }
     // The Claude family has NO native TodoWrite in headless mode, so steer it to
     // ANGEL's MCP todo tools to keep a user-visible task list. Codex has its own
     // native todo_list (mirrored live), so don't double it up there.
@@ -250,7 +280,7 @@ export function createCliAgentRuntime(deps = {}) {
             break;
           case 'tool_call':
             try { params?.onToolCall?.(functionCallTurn(profile.driver, capturedModel, ev)); } catch (_) {}
-            try { params?.onProgress?.(`${ev.name || 'tool'}…`, null); } catch (_) {}
+            try { params?.onProgress?.(toolCallProgressText(ev), null); } catch (_) {}
             break;
           case 'tool_result':
             try { params?.onToolOutput?.(toolOutputTurn(profile.driver, capturedModel, ev)); } catch (_) {}

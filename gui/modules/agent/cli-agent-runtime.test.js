@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { decideResume, normalizeSessionRecord } from './cli-agent-runtime.js';
+import { decideResume, normalizeSessionRecord, toolCallProgressText } from './cli-agent-runtime.js';
 
 const profile = { id: 'claude-sub', driver: 'claude-code' };
 const dir = 'F:/proj/agents/designer';
@@ -48,4 +48,30 @@ test('normalizeSessionRecord: legacy without profileId → keyed by driver', () 
   const r = normalizeSessionRecord({ driver: 'claude-code', cwd: dir, sessionId: 's1' });
   assert.equal(r.lastProfileId, 'claude-code');
   assert.ok(r.byProfile['claude-code']);
+});
+
+// The tool-progress text must match the HTTP line byte-for-byte: the chat UI
+// only renders the clickable/collapsible tool bubble when the thinking message
+// starts with "[tool] " (agent-chat-ui-shell isToolProgressThinkingMessage).
+test('toolCallProgressText: HTTP-line format, [tool] name(args)', () => {
+  assert.equal(
+    toolCallProgressText({ name: 'Bash', args: { command: 'ls -la' } }),
+    '[tool] Bash(command=ls -la)'
+  );
+});
+
+test('toolCallProgressText: no args → name()', () => {
+  assert.equal(toolCallProgressText({ name: 'Read', args: {} }), '[tool] Read()');
+  assert.equal(toolCallProgressText({ name: 'Read' }), '[tool] Read()');
+});
+
+test('toolCallProgressText: first two keys, arrays/objects summarized', () => {
+  assert.equal(
+    toolCallProgressText({ name: 'edit 2 files', args: { changes: [1, 2], status: 'completed', extra: 'x' } }),
+    '[tool] edit 2 files(changes=[2], status=completed)'
+  );
+});
+
+test('toolCallProgressText: missing name → tool', () => {
+  assert.equal(toolCallProgressText({ args: {} }), '[tool] tool()');
 });

@@ -324,7 +324,14 @@ export function createAgentModelSettingsController(deps) {
     'kimi-k2': ['kimi-k2-turbo-preview', 'kimi-k2-thinking-turbo', 'kimi-k2-0905-preview'],
     glm: ['glm-4.6', 'glm-4.5-air'],
     deepseek: ['deepseek-chat', 'deepseek-reasoner'],
-    'codex-sub': ['gpt-5.1-codex-max', 'gpt-5.1-codex', 'gpt-5.1-codex-mini'],
+    // (Refreshed 2026-07-18 against codex-cli 0.142.1's bundled models.json —
+    // the gpt-5.1-codex-* generation only survives there as migration aliases.)
+    'codex-sub': [
+      { value: 'gpt-5.5', label: 'GPT-5.5' },
+      { value: 'gpt-5.4', label: 'GPT-5.4' },
+      { value: 'gpt-5.4-mini', label: 'GPT-5.4 Mini' },
+      { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex' },
+    ],
   };
 
   // Per-driver install guidance (link-based, mirroring the C++ build-tools modal).

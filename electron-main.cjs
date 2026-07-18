@@ -1992,7 +1992,18 @@ async function fetchCodexUsageWindows() {
   const win = (w) => (w && typeof w === 'object'
     ? { percent: Math.round(Number(w.used_percent) || 0), resetAt: (Number(w.reset_at) || 0) * 1000 }
     : null);
-  return { ok: true, source: 'codex', fiveHour: win(rl.primary_window), weekly: win(rl.secondary_window) };
+  // Windows are classified by DURATION, not position: newer plans dropped the
+  // 5h window, so primary_window is now the 7-day one and secondary_window is
+  // null (observed live 2026-07-18). <=6h -> fiveHour, else -> weekly.
+  let fiveHour = null;
+  let weekly = null;
+  for (const w of [rl.primary_window, rl.secondary_window]) {
+    if (!w || typeof w !== 'object') continue;
+    const secs = Number(w.limit_window_seconds) || 0;
+    if (secs > 0 && secs <= 21600) fiveHour = fiveHour || win(w);
+    else weekly = weekly || win(w);
+  }
+  return { ok: true, source: 'codex', fiveHour, weekly };
 }
 
 ipcMain.handle('cliAgent:usageWindows', async (_event, payload) => {
