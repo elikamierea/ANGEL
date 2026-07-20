@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { decideResume, normalizeSessionRecord, toolCallProgressText } from './cli-agent-runtime.js';
+import {
+  decideResume,
+  normalizeSessionRecord,
+  toolCallProgressText,
+  estimateCliContextTokens,
+  resolveCliContextUsage,
+} from './cli-agent-runtime.js';
 
 const profile = { id: 'claude-sub', driver: 'claude-code' };
 const dir = 'F:/proj/agents/designer';

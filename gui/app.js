@@ -960,6 +960,7 @@ let _renderAgentStatusBarImpl = () => {};
 let _renderAgentSidebarImpl = () => {};
 let _renderAgentTimelineImpl = () => {};
 let _renderAgentTodoPanelImpl = () => {};
+let _renderAgentTokenStatsImpl = () => {};
 let _renderAgentCtxBarImpl = () => {};
 let _syncContextLimitFromModelImpl = () => {};
 let _syncAgentSendButtonImpl = () => {};
@@ -1107,6 +1108,7 @@ function renderAgentStatusBar(...args) { return _renderAgentStatusBarImpl(...arg
 function renderAgentSidebar(...args) { return _renderAgentSidebarImpl(...args); }
 function renderAgentTimeline(...args) { return _renderAgentTimelineImpl(...args); }
 function renderAgentTodoPanel(...args) { return _renderAgentTodoPanelImpl(...args); }
+function renderAgentTokenStats(...args) { return _renderAgentTokenStatsImpl(...args); }
 function renderAgentCtxBar(...args) { return _renderAgentCtxBarImpl(...args); }
 function syncAgentSendButton(...args) { return _syncAgentSendButtonImpl(...args); }
 function pushAgentMessage(...args) {
@@ -2006,7 +2008,10 @@ const agentModelSettingsController = createAgentModelSettingsController({
   },
   setStatus,
   resolveCliAuthTarget,
-  onSettingsSaved: () => { try { _syncContextLimitFromModelImpl(); } catch (_) {} },
+  onSettingsSaved: () => {
+    try { _syncContextLimitFromModelImpl(); } catch (_) {}
+    try { renderAgentTokenStats(); } catch (_) {}
+  },
   onCliBackendSwitched,
 });
 
@@ -4412,6 +4417,7 @@ _renderAgentStatusBarImpl = agentChatUIShell.renderAgentStatusBar;
 _renderAgentSidebarImpl = agentChatUIShell.renderAgentSidebar;
 _renderAgentTimelineImpl = agentChatUIShell.renderAgentTimeline;
 _renderAgentTodoPanelImpl = agentChatUIShell.renderAgentTodoPanel;
+_renderAgentTokenStatsImpl = agentChatUIShell.renderAgentTokenStats;
 _renderAgentCtxBarImpl = agentChatUIShell.renderAgentCtxBar;
 _syncContextLimitFromModelImpl = agentChatUIShell.syncContextLimitFromModel;
 _syncAgentSendButtonImpl = agentChatUIShell.syncAgentSendButton;

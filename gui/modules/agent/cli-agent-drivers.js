@@ -308,6 +308,22 @@ function describeCodexAction(item, itemType) {
   return { name: itemType, args: item, output: status || 'completed' };
 }
 
+// Codex's fatal error/turn.failed events carry a message that is often ITSELF a
+// serialized JSON blob (`{"type":"error","status":400,"error":{"message":"The
+// 'x' model is not supported…"}}`, observed live on 0.142.1 with an unsupported
+// -m). Extract the innermost human-readable message so the failure bubble shows
+// the reason instead of raw JSON. Pure → unit-tested.
+export function extractCodexErrorMessage(raw) {
+  const text = asString(raw).trim();
+  if (!text) return '';
+  try {
+    const obj = JSON.parse(text);
+    const inner = (obj && typeof obj === 'object') ? (obj.error?.message ?? obj.message) : null;
+    if (inner) return asString(inner);
+  } catch (_) { /* not JSON — use as-is */ }
+  return text;
+}
+
 function parseCodexEvent(obj) {
   if (!obj || typeof obj !== 'object') return { kind: 'ignore' };
   const type = asString(obj.type);
@@ -363,7 +379,11 @@ function parseCodexEvent(obj) {
   }
 
   if (type === 'error') {
-    return { kind: 'error', message: asString(obj.message) || 'codex error' };
+    return { kind: 'error', message: extractCodexErrorMessage(obj.message) || 'codex error' };
+  }
+
+  if (type === 'turn.failed') {
+    return { kind: 'error', message: extractCodexErrorMessage(obj.error?.message) || 'codex turn failed' };
   }
 
   // turn.started, item.started, reasoning, etc. are not surfaced.

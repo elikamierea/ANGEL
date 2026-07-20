@@ -325,12 +325,13 @@ export function createAgentModelSettingsController(deps) {
     glm: ['glm-4.6', 'glm-4.5-air'],
     deepseek: ['deepseek-chat', 'deepseek-reasoner'],
     // (Refreshed 2026-07-18 against codex-cli 0.142.1's bundled models.json —
-    // the gpt-5.1-codex-* generation only survives there as migration aliases.)
+    // the gpt-5.1-codex-* generation only survives there as migration aliases.
+    // gpt-5.3-codex removed: ChatGPT-subscription accounts get HTTP 400 "model
+    // is not supported when using Codex with a ChatGPT account" — verified live.)
     'codex-sub': [
       { value: 'gpt-5.5', label: 'GPT-5.5' },
       { value: 'gpt-5.4', label: 'GPT-5.4' },
       { value: 'gpt-5.4-mini', label: 'GPT-5.4 Mini' },
-      { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex' },
     ],
   };
 

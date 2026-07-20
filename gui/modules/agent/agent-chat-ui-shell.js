@@ -8,6 +8,17 @@ const IMAGE_MIME_EXTENSIONS = {
   'image/gif': 'gif',
 };
 
+export function getCliUsageSourceKey(ctx = {}) {
+  return `${String(ctx?.driver || '')}|${ctx?.hasBaseUrlOverride ? 1 : 0}`;
+}
+
+export function getCliUsageWindowsForContext(ctx, cachedWindows, cachedSourceKey) {
+  if (!ctx || ctx.supported !== true) return null;
+  return getCliUsageSourceKey(ctx) === String(cachedSourceKey || '')
+    ? (cachedWindows || null)
+    : null;
+}
+
 export function createAgentChatUIShell(deps) {
   const {
     agentChatStateManager,
@@ -715,7 +726,7 @@ export function createAgentChatUIShell(deps) {
   const CLI_USAGE_TTL_MS = 60000;
 
   function maybeRefreshCliUsage(ctx) {
-    const key = `${ctx.driver}|${ctx.hasBaseUrlOverride ? 1 : 0}`;
+    const key = getCliUsageSourceKey(ctx);
     const stale = Date.now() - cliUsageFetchedAt > CLI_USAGE_TTL_MS;
     if (cliUsageFetching) return;
     if (key === cliUsageSourceKey && cliUsageWindows && !stale) return;
@@ -769,7 +780,7 @@ export function createAgentChatUIShell(deps) {
   }
 
   function renderCliUsageWindows(ctx) {
-    const u = cliUsageWindows;
+    const u = getCliUsageWindowsForContext(ctx, cliUsageWindows, cliUsageSourceKey);
     if (!u) {
       agentTokenStats.innerHTML = usageNotice('…');
     } else if (u.ok !== true) {
@@ -848,6 +859,7 @@ export function createAgentChatUIShell(deps) {
       const reply = await requestDefaultModelCompletion({
         prompt: cliActive ? instructionText : '',
         agentId: targetAgentId,
+        persistSessionOnAbort: true,
         suppressAggregatedFinalText: true,
         onProgress: (statusText, usageInfo) => {
           const thinkingText = String(statusText || 'Organizing memory...');
@@ -975,6 +987,7 @@ export function createAgentChatUIShell(deps) {
           prompt: continuationText,
           agentId,
           signal: requestController.signal,
+          persistSessionOnAbort: true,
           suppressAggregatedFinalText: true,
           maxLoopRounds: roundsBudget,
           onRoundComplete: () => {
@@ -1495,6 +1508,7 @@ export function createAgentChatUIShell(deps) {
           images: outgoingImages,
           agentId: targetAgentId,
           signal: requestController?.signal,
+          persistSessionOnAbort: !wasFirstTurn,
           suppressAggregatedFinalText: true,
           onProgress: (statusText, usageInfo) => {
             const thinkingText = String(statusText || 'Replying...');
@@ -1741,6 +1755,7 @@ export function createAgentChatUIShell(deps) {
     renderAgentSidebar,
     renderAgentTimeline,
     renderAgentTodoPanel,
+    renderAgentTokenStats,
     renderAgentCtxBar,
     syncContextLimitFromModel,
     syncAgentSendButton,

@@ -56,6 +56,30 @@ export function toolCallProgressText(ev) {
   return summarizeToolCall({ name: String(ev?.name || 'tool'), argumentsText });
 }
 
+export function estimateCliContextTokens(usage) {
+  if (!usage || typeof usage !== 'object') return 0;
+  return (Number(usage.cache_read_input_tokens) || 0)
+    + (Number(usage.cache_creation_input_tokens) || 0)
+    + (Number(usage.input_tokens) || 0)
+    + (Number(usage.output_tokens) || 0);
+}
+
+export function resolveCliContextUsage(latestTurnUsage, finalUsage) {
+  if (latestTurnUsage && typeof latestTurnUsage === 'object') return latestTurnUsage;
+  if (finalUsage && typeof finalUsage === 'object') return finalUsage;
+  return null;
+}
+
+export async function persistCliSessionPointer(saveCliSession, agentId, profile, agentDir, sessionId) {
+  if (!saveCliSession || !agentId || !profile?.id || !profile?.driver || !agentDir || !sessionId) return;
+  await saveCliSession(agentId, profile.id, {
+    profileId: profile.id,
+    driver: profile.driver,
+    cwd: agentDir,
+    sessionId,
+  });
+}
+
 function newRunId() {
   try {
     if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
@@ -212,7 +236,12 @@ export function createCliAgentRuntime(deps = {}) {
       let capturedSessionId = attemptResumeId || '';
       let capturedModel = model;
       let finalEvent = null;
+      let latestTurnUsage = null;
       let sessionEverCaptured = false; // a real session event (Claude init / Codex thread.started)
+      // Codex reports fatal errors (e.g. an unsupported -m model → HTTP 400) as
+      // stdout JSON events (error / turn.failed) and exits 1 with an EMPTY
+      // stderr — keep the last message so the failure bubble can say WHY.
+      let lastErrorMessage = '';
 
       const cleanup = () => {
         if (typeof unsubscribe === 'function') { try { unsubscribe(); } catch (_) {} }
@@ -227,7 +256,7 @@ export function createCliAgentRuntime(deps = {}) {
         cleanup();
         if (capturedSessionId) {
           try {
-            await saveCliSession?.(agentId, profile.id, { profileId: profile.id, driver: profile.driver, cwd: agentDir, sessionId: capturedSessionId });
+            await persistCliSessionPointer(saveCliSession, agentId, profile, agentDir, capturedSessionId);
           } catch (_) { /* projection-only; non-fatal */ }
         }
         const usage = finalEvent?.usage;
@@ -245,11 +274,9 @@ export function createCliAgentRuntime(deps = {}) {
         // size. The CLI owns context + native compaction, so this self-corrects each
         // turn (it drops after a compaction). Routed through onProgress's usageInfo
         // channel (same one the HTTP line uses); the ctx bar shows it without a limit.
-        if (usage) {
-          const ctxTokens = (Number(usage.cache_read_input_tokens) || 0)
-            + (Number(usage.cache_creation_input_tokens) || 0)
-            + (Number(usage.input_tokens) || 0)
-            + (Number(usage.output_tokens) || 0);
+        const contextUsage = resolveCliContextUsage(latestTurnUsage, usage);
+        if (contextUsage) {
+          const ctxTokens = estimateCliContextTokens(contextUsage);
           try { params?.onProgress?.('', { used: ctxTokens, max: 0 }); } catch (_) {}
         }
         // When we streamed text live (suppressAggregatedFinalText), don't re-emit
@@ -286,6 +313,9 @@ export function createCliAgentRuntime(deps = {}) {
           case 'tool_result':
             try { params?.onToolOutput?.(toolOutputTurn(profile.driver, capturedModel, ev)); } catch (_) {}
             break;
+          case 'usage':
+            latestTurnUsage = ev.usage && typeof ev.usage === 'object' ? ev.usage : latestTurnUsage;
+            break;
           case 'todo':
             // Mirror the CLI's native todo/plan into ANGEL's per-agent todo panel.
             try { applyAgentTodos?.(agentId, Array.isArray(ev.items) ? ev.items : []); } catch (_) {}
@@ -293,6 +323,9 @@ export function createCliAgentRuntime(deps = {}) {
           case 'plan':
             // The agent's proposed plan (Claude ExitPlanMode) → display-only note.
             try { showAgentPlan?.(agentId, String(ev.text || '')); } catch (_) {}
+            break;
+          case 'error':
+            lastErrorMessage = String(ev.message || '');
             break;
           case 'final':
             finalEvent = ev;
@@ -303,7 +336,7 @@ export function createCliAgentRuntime(deps = {}) {
         }
       };
 
-      const onEventMessage = (data) => {
+      const onEventMessage = async (data) => {
         if (!data || data.runId !== runId) return;
         if (data.kind === 'line') {
           let obj = null;
@@ -314,6 +347,9 @@ export function createCliAgentRuntime(deps = {}) {
           // a failure — surface it as an abort (silent "stopped"), never an error
           // bubble. Checked first so the killed-process exit code can't be misread.
           if (params?.signal?.aborted) {
+            if (params?.persistSessionOnAbort && capturedSessionId) {
+              try { await persistCliSessionPointer(saveCliSession, agentId, profile, agentDir, capturedSessionId); } catch (_) {}
+            }
             settleOnce({ aborted: true });
             return;
           }
@@ -324,7 +360,8 @@ export function createCliAgentRuntime(deps = {}) {
           if (attemptResumeId && !sessionEverCaptured && (!finalEvent || finalEvent.isError)) {
             settleOnce({ resumeFailed: true });
           } else if (data.code !== 0 && !finalEvent) {
-            settleOnce({ error: `CLI agent exited (code ${data.code}). ${String(data.stderr || '').trim().slice(-500)}`.trim() });
+            const detail = lastErrorMessage || String(data.stderr || '').trim().slice(-500);
+            settleOnce({ error: `CLI agent exited (code ${data.code}). ${detail}`.trim() });
           } else {
             finishReply();
           }

@@ -396,6 +396,26 @@ test('codex parseEvent: turn.completed -> final with usage aliased', () => {
   assert.equal(e.usage.input_tokens, 100);
 });
 
+// Fatal codex errors (captured live on 0.142.1 with an unsupported -m: the
+// account-rejected model produced error + turn.failed whose message is itself a
+// serialized JSON blob). The inner human message must surface, or the UI shows
+// a bare "CLI agent exited (code 1)." with no reason.
+test('codex parseEvent: error / turn.failed -> error with inner message extracted', () => {
+  const nested = '{"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The \'gpt-5.3-codex\' model is not supported when using Codex with a ChatGPT account."}}';
+  const e1 = parseCodexEvent({ type: 'error', message: nested });
+  assert.equal(e1.kind, 'error');
+  assert.match(e1.message, /model is not supported/);
+  assert.doesNotMatch(e1.message, /invalid_request_error/); // inner text, not raw JSON
+  const e2 = parseCodexEvent({ type: 'turn.failed', error: { message: nested } });
+  assert.equal(e2.kind, 'error');
+  assert.match(e2.message, /model is not supported/);
+});
+
+test('codex parseEvent: plain-text error message passes through', () => {
+  assert.deepEqual(parseCodexEvent({ type: 'error', message: 'stream disconnected' }), { kind: 'error', message: 'stream disconnected' });
+  assert.deepEqual(parseCodexEvent({ type: 'turn.failed' }), { kind: 'error', message: 'codex turn failed' });
+});
+
 test('codex parseEvent: ignores turn.started / item.started / unknown', () => {
   assert.deepEqual(parseCodexEvent({ type: 'turn.started' }), { kind: 'ignore' });
   assert.deepEqual(parseCodexEvent({ type: 'item.started', item: { type: 'file_change' } }), { kind: 'ignore' });
