@@ -142,6 +142,7 @@ export function createAgentMemoryPreload(deps) {
     let missingFiles = 0;
     let totalFiles = 0;
     const preferSessionRestore = options?.preferSessionRestore !== false;
+    const sessionOnly = Boolean(options?.sessionOnly);
 
     const MAX_HISTORY_CHARS = 12000;
 
@@ -166,38 +167,44 @@ export function createAgentMemoryPreload(deps) {
         } catch (_) {
           totalFiles += 1;
         }
+        // CLI agents (sessionOnly) use native session resume — if session.json
+        // restore failed there is no fallback memory to inject, so skip the
+        // full preload block (memory files + history reconstruction + separator).
+        if (sessionOnly) continue;
       }
 
-      for (const fileDef of AGENT_MEMORY_FILES) {
-        totalFiles += 1;
-        const relPath = `agents/${folderName}/${fileDef.name}`;
-        const toolArgs = { path: relPath, offset: 1, limit: AGENT_MEMORY_READ_LIMIT };
+      if (!sessionOnly) {
+        for (const fileDef of AGENT_MEMORY_FILES) {
+          totalFiles += 1;
+          const relPath = `agents/${folderName}/${fileDef.name}`;
+          const toolArgs = { path: relPath, offset: 1, limit: AGENT_MEMORY_READ_LIMIT };
 
-        try {
-          const result = await toolReadByParams(toolArgs);
-          const text = typeof result?.content === 'string' ? result.content.trim() : '';
+          try {
+            const result = await toolReadByParams(toolArgs);
+            const text = typeof result?.content === 'string' ? result.content.trim() : '';
 
-          if (!text) {
-            pushSystemRecoveryMessage(agentId, `${fileDef.label}:\n${buildMissingFileNotice(relPath)}`);
-            continue;
+            if (!text) {
+              pushSystemRecoveryMessage(agentId, `${fileDef.label}:\n${buildMissingFileNotice(relPath)}`);
+              continue;
+            }
+
+            const heading = fileDef.name === 'memory_recent.md'
+              ? '以下是对近期会话的汇总：'
+              : '以下是对于项目的长期记忆：';
+            pushSystemRecoveryMessage(agentId, `${heading}\n${text}`);
+            loadedFiles += 1;
+          } catch (error) {
+            const missing = isMissingFileSystemError(error);
+            const detail = error instanceof Error ? error.message : String(error || 'unknown error');
+
+            if (missing) {
+              missingFiles += 1;
+              pushSystemRecoveryMessage(agentId, `${fileDef.label}:\n${buildMissingFileNotice(relPath)}`);
+              continue;
+            }
+
+            console.error(`Failed to load agent memory file: ${relPath}`, error);
           }
-
-          const heading = fileDef.name === 'memory_recent.md'
-            ? '以下是对近期会话的汇总：'
-            : '以下是对于项目的长期记忆：';
-          pushSystemRecoveryMessage(agentId, `${heading}\n${text}`);
-          loadedFiles += 1;
-        } catch (error) {
-          const missing = isMissingFileSystemError(error);
-          const detail = error instanceof Error ? error.message : String(error || 'unknown error');
-
-          if (missing) {
-            missingFiles += 1;
-            pushSystemRecoveryMessage(agentId, `${fileDef.label}:\n${buildMissingFileNotice(relPath)}`);
-            continue;
-          }
-
-          console.error(`Failed to load agent memory file: ${relPath}`, error);
         }
       }
 

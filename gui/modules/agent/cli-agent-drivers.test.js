@@ -416,8 +416,63 @@ test('codex parseEvent: plain-text error message passes through', () => {
   assert.deepEqual(parseCodexEvent({ type: 'turn.failed' }), { kind: 'error', message: 'codex turn failed' });
 });
 
-test('codex parseEvent: ignores turn.started / item.started / unknown', () => {
+test('codex parseEvent: ignores turn.started / item.started-no-paths / unknown', () => {
   assert.deepEqual(parseCodexEvent({ type: 'turn.started' }), { kind: 'ignore' });
-  assert.deepEqual(parseCodexEvent({ type: 'item.started', item: { type: 'file_change' } }), { kind: 'ignore' });
+  // file_change with no changes array → no paths → falls through to ignore
+  assert.deepEqual(parseCodexEvent({ type: 'item.started', item: { id: 'x', type: 'file_change' } }), { kind: 'ignore' });
   assert.deepEqual(parseCodexEvent(null), { kind: 'ignore' });
+});
+
+test('codex parseEvent: item.started file_change with paths → snapshot_before', () => {
+  const ev = parseCodexEvent({
+    type: 'item.started',
+    item: { id: 'fc1', type: 'file_change', changes: [{ path: 'src/a.cpp', kind: 'update' }] },
+  });
+  assert.deepEqual(ev, { kind: 'snapshot_before', id: 'fc1', paths: ['src/a.cpp'] });
+});
+
+// --- Codex file_change diff (git-based) ---------------------------------------
+
+test('codex parseEvent: item.completed file_change → batch whose tool_call carries snapshotPath + snapshotKind', () => {
+  const ev = parseCodexEvent({
+    type: 'item.completed',
+    item: {
+      id: 'item_4',
+      type: 'file_change',
+      changes: [{ path: 'src/main.cpp', kind: 'update' }],
+      status: 'completed',
+    },
+  });
+  assert.equal(ev.kind, 'batch');
+  const toolCall = ev.events.find((e) => e.kind === 'tool_call');
+  assert.ok(toolCall, 'batch should include a tool_call');
+  assert.equal(toolCall.snapshotPath, 'src/main.cpp');
+  assert.equal(toolCall.snapshotKind, 'update');
+  const toolResult = ev.events.find((e) => e.kind === 'tool_result');
+  assert.ok(toolResult, 'batch should include a tool_result');
+});
+
+test('codex parseEvent: item.completed file_change with absolute path → snapshotPath preserved as-is', () => {
+  const ev = parseCodexEvent({
+    type: 'item.completed',
+    item: {
+      id: 'item_5',
+      type: 'file_change',
+      changes: [{ path: 'C:\\Users\\dev\\project\\src\\main.cpp', kind: 'create' }],
+      status: 'completed',
+    },
+  });
+  const toolCall = ev.events.find((e) => e.kind === 'tool_call');
+  assert.equal(toolCall?.snapshotPath, 'C:\\Users\\dev\\project\\src\\main.cpp');
+  assert.equal(toolCall?.snapshotKind, 'create');
+});
+
+test('codex parseEvent: item.completed file_change with no changes → snapshotPath empty', () => {
+  const ev = parseCodexEvent({
+    type: 'item.completed',
+    item: { id: 'item_9', type: 'file_change', status: 'completed' },
+  });
+  assert.equal(ev.kind, 'batch');
+  const toolCall = ev.events.find((e) => e.kind === 'tool_call');
+  assert.equal(toolCall?.snapshotPath, '');
 });

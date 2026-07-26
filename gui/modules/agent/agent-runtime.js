@@ -716,7 +716,9 @@ export function createAgentRuntime(deps) {
       // the response id so the payload builder can dedupe replayed content.
       const hadAssistantText = textParts.length > 0;
       toolCalls.forEach((call, callIdx) => {
-        notify(summarizeToolCall(call), usageInfo);
+        let toolCallArgs = {};
+        try { toolCallArgs = call.argumentsText ? JSON.parse(call.argumentsText) : {}; } catch (_) {}
+        notify(summarizeToolCall(call), usageInfo, { name: String(call.name || ''), args: toolCallArgs });
         if (typeof params?.onToolCall === 'function') {
           const embedRawContent = !hadAssistantText && callIdx === 0;
           try { params.onToolCall(turnAdapter.functionCallTurn(call, reasoningText, responseProviderMeta, embedRawContent)); } catch (_) {}

@@ -160,6 +160,7 @@ export function createAgentChatStateManager({
       providerMeta: options?.providerMeta && typeof options.providerMeta === 'object'
         ? JSON.parse(JSON.stringify(options.providerMeta))
         : null,
+      toolMeta: options?.toolMeta && typeof options.toolMeta === 'object' ? options.toolMeta : null,
     };
 
     if (replaceLastThinking && normalizedRole === 'thinking' && list.length > 0) {
@@ -331,6 +332,7 @@ export function createAgentChatStateManager({
       name: typeof item?.name === 'string' ? item.name : '',
       arguments: typeof item?.arguments === 'string' ? item.arguments : '',
       output: typeof item?.output === 'string' ? item.output : '',
+      toolMeta: item?.toolMeta && typeof item.toolMeta === 'object' ? item.toolMeta : null,
     };
   }
 

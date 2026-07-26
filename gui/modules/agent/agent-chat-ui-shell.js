@@ -83,25 +83,205 @@ export function createAgentChatUIShell(deps) {
   toolPreviewModal.setAttribute('aria-hidden', 'true');
   toolPreviewModal.innerHTML = `
     <div class="modal-backdrop" data-close-tool-preview="1"></div>
-    <div class="modal-panel">
+    <div class="modal-panel tool-preview-panel">
       <div class="modal-head">
-        <h3>Tool Progress</h3>
-        <button type="button" data-close-tool-preview="1">X</button>
+        <h3 class="tool-preview-title">Tool Progress</h3>
+        <button type="button" data-close-tool-preview="1" data-i18n="ui.symbol.close">${t('ui.symbol.close')}</button>
       </div>
-      <div class="modal-body">
-        <pre class="execute-fail-detail tool-preview-detail"></pre>
-      </div>
+      <div class="modal-body tool-preview-body"></div>
     </div>
   `;
   document.body.appendChild(toolPreviewModal);
-  const toolPreviewDetail = toolPreviewModal.querySelector('.tool-preview-detail');
+  const toolPreviewBody = toolPreviewModal.querySelector('.tool-preview-body');
+  const toolPreviewTitle = toolPreviewModal.querySelector('.tool-preview-title');
 
   function isAgentRequestInFlight(agentId) {
     return Boolean(agentId && inFlightRequestByAgent.get(agentId));
   }
 
-  function openToolPreviewModal(text) {
-    if (toolPreviewDetail) toolPreviewDetail.textContent = String(text || '');
+  function toRelativePath(rawPath) {
+    const p = String(rawPath || '').replace(/\\/g, '/').trim();
+    if (!p) return p;
+    if (!/^([A-Za-z]:\/|\/)/.test(p)) return p;
+    try {
+      const root = String(
+        typeof deps?.projectRootPathGetter === 'function' ? deps.projectRootPathGetter() : ''
+      ).replace(/\\/g, '/').replace(/\/+$/, '');
+      if (root && p.toLowerCase().startsWith(root.toLowerCase() + '/')) {
+        return p.slice(root.length + 1);
+      }
+    } catch (_) {}
+    return p;
+  }
+
+  function normalizeProgressEvent(statusText, toolMeta) {
+    if (!toolMeta?.args?.path) return { text: statusText, meta: toolMeta || null };
+    const rawPath = String(toolMeta.args.path);
+    const relPath = toRelativePath(rawPath);
+    const rawNorm = rawPath.replace(/\s+/g, ' ').trim();
+    if (relPath === rawNorm.replace(/\\/g, '/')) return { text: statusText, meta: toolMeta };
+    const text = String(statusText || '').split(rawNorm).join(relPath);
+    return { text, meta: { ...toolMeta, args: { ...toolMeta.args, path: relPath } } };
+  }
+
+  function lineDiff(oldText, newText) {
+    const a = String(oldText || '').split('\n');
+    const b = String(newText || '').split('\n');
+    const m = a.length;
+    const n = b.length;
+    const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+    const result = [];
+    let i = m;
+    let j = n;
+    while (i > 0 || j > 0) {
+      if (i > 0 && j > 0 && a[i - 1] === b[j - 1]) {
+        result.unshift({ type: 'eq', text: a[i - 1] });
+        i -= 1;
+        j -= 1;
+      } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+        result.unshift({ type: 'add', text: b[j - 1] });
+        j -= 1;
+      } else {
+        result.unshift({ type: 'del', text: a[i - 1] });
+        i -= 1;
+      }
+    }
+    return result;
+  }
+
+  function extractDiffMeta(meta) {
+    const name = String(meta?.name || '').toLowerCase();
+    const args = meta?.args || {};
+    // Normalise path: HTTP path uses `path`, Claude Code CLI uses `file_path`.
+    const filePath = args.path ?? args.file_path;
+    if (name === 'write') {
+      const newContent = args.content ?? args.file_text ?? '';
+      // If the runtime pre-read the file before the write, show a proper diff.
+      if (args.oldText !== undefined) {
+        return { type: 'edit', path: toRelativePath(filePath), oldText: args.oldText, newText: newContent };
+      }
+      return { type: 'write', path: toRelativePath(filePath), content: newContent };
+    }
+    if (name === 'edit') {
+      if (args.unifiedDiff !== undefined) return { type: 'unified', path: toRelativePath(filePath), unifiedDiff: String(args.unifiedDiff) };
+      if (args.oldText !== undefined) return { type: 'edit', path: toRelativePath(filePath), oldText: args.oldText, newText: args.newText ?? '' };
+      // HTTP path uses old_str/new_str; Claude Code CLI uses old_string/new_string.
+      if (args.old_str !== undefined) return { type: 'edit', path: toRelativePath(filePath), oldText: args.old_str, newText: args.new_str ?? '' };
+      if (args.old_string !== undefined) return { type: 'edit', path: toRelativePath(filePath), oldText: args.old_string, newText: args.new_string ?? '' };
+      if (args.file_text !== undefined || args.command === 'create') return { type: 'write', path: toRelativePath(filePath), content: args.file_text ?? '' };
+    }
+    return null;
+  }
+
+  // Parse a unified diff string into { type: 'add'|'del'|'eq'|'hunk', text }
+  function parseUnifiedDiff(diffText) {
+    const lines = String(diffText || '').split('\n');
+    const result = [];
+    for (const raw of lines) {
+      if (raw.startsWith('@@')) {
+        result.push({ type: 'hunk', text: raw });
+      } else if (raw.startsWith('---') || raw.startsWith('+++')) {
+        // File header lines — skip; path is shown separately
+      } else if (raw.startsWith('+')) {
+        result.push({ type: 'add', text: raw.slice(1) });
+      } else if (raw.startsWith('-')) {
+        result.push({ type: 'del', text: raw.slice(1) });
+      } else if (raw.startsWith(' ') || raw === '') {
+        result.push({ type: 'eq', text: raw.startsWith(' ') ? raw.slice(1) : '' });
+      }
+    }
+    return result;
+  }
+
+  const DIFF_LINE_CAP = 500;
+
+  function appendDiffLine(container, type, text) {
+    const line = document.createElement('div');
+    line.className = `tool-diff-line${type === 'del' ? ' del' : type === 'add' ? ' add' : ''}`;
+    const marker = document.createElement('span');
+    marker.className = 'tool-diff-line-marker';
+    marker.textContent = type === 'del' ? '-' : type === 'add' ? '+' : ' ';
+    const content = document.createElement('span');
+    content.className = 'tool-diff-line-text';
+    content.textContent = text;
+    line.appendChild(marker);
+    line.appendChild(content);
+    container.appendChild(line);
+  }
+
+  function renderToolPreviewContent(item) {
+    if (!toolPreviewBody) return;
+    toolPreviewBody.innerHTML = '';
+    const dm = extractDiffMeta(item?.toolMeta);
+    if (!dm) {
+      if (toolPreviewTitle) toolPreviewTitle.textContent = 'Tool Progress';
+      const pre = document.createElement('pre');
+      pre.className = 'execute-fail-detail tool-preview-detail';
+      pre.textContent = String(item?.text || '');
+      toolPreviewBody.appendChild(pre);
+      return;
+    }
+    const toolLabel = String(item?.toolMeta?.name || dm.type);
+    if (toolPreviewTitle) toolPreviewTitle.textContent = toolLabel;
+    const view = document.createElement('div');
+    view.className = 'tool-diff-view';
+    const pathEl = document.createElement('div');
+    pathEl.className = 'tool-diff-path';
+    pathEl.textContent = String(dm.path || '(unknown path)');
+    view.appendChild(pathEl);
+    const linesEl = document.createElement('div');
+    linesEl.className = 'tool-diff-lines';
+    if (dm.type === 'write') {
+      const lines = String(dm.content || '').split('\n');
+      const shown = lines.slice(0, DIFF_LINE_CAP);
+      for (const line of shown) appendDiffLine(linesEl, 'eq', line);
+      if (lines.length > DIFF_LINE_CAP) {
+        const more = document.createElement('div');
+        more.className = 'tool-diff-truncated';
+        more.textContent = `… ${lines.length - DIFF_LINE_CAP} more lines`;
+        linesEl.appendChild(more);
+      }
+    } else if (dm.type === 'unified') {
+      const parsed = parseUnifiedDiff(dm.unifiedDiff);
+      const shown = parsed.slice(0, DIFF_LINE_CAP);
+      for (const line of shown) {
+        if (line.type === 'hunk') {
+          const hunkEl = document.createElement('div');
+          hunkEl.className = 'tool-diff-hunk-header';
+          hunkEl.textContent = line.text;
+          linesEl.appendChild(hunkEl);
+        } else {
+          appendDiffLine(linesEl, line.type === 'eq' ? 'eq' : line.type, line.text);
+        }
+      }
+      if (parsed.length > DIFF_LINE_CAP) {
+        const more = document.createElement('div');
+        more.className = 'tool-diff-truncated';
+        more.textContent = `… ${parsed.length - DIFF_LINE_CAP} more diff lines`;
+        linesEl.appendChild(more);
+      }
+    } else {
+      const hunks = lineDiff(dm.oldText, dm.newText);
+      const shown = hunks.slice(0, DIFF_LINE_CAP);
+      for (const hunk of shown) appendDiffLine(linesEl, hunk.type === 'eq' ? 'eq' : hunk.type, hunk.text);
+      if (hunks.length > DIFF_LINE_CAP) {
+        const more = document.createElement('div');
+        more.className = 'tool-diff-truncated';
+        more.textContent = `… ${hunks.length - DIFF_LINE_CAP} more diff lines`;
+        linesEl.appendChild(more);
+      }
+    }
+    view.appendChild(linesEl);
+    toolPreviewBody.appendChild(view);
+  }
+
+  function openToolPreviewModal(item) {
+    renderToolPreviewContent(typeof item === 'string' ? { text: item, toolMeta: null } : item);
     toolPreviewModal.classList.remove('hidden');
     toolPreviewModal.setAttribute('aria-hidden', 'false');
   }
@@ -378,7 +558,7 @@ export function createAgentChatUIShell(deps) {
     bubble.style.maxWidth = shouldCollapse ? `${TOOL_PROGRESS_COLLAPSED_WIDTH_PX}px` : '';
     bubble.title = shouldCollapse ? '点击查看全文' : '';
     bubble.addEventListener('click', () => {
-      openToolPreviewModal(renderedText);
+      openToolPreviewModal(item);
     });
   }
 
@@ -760,7 +940,6 @@ export function createAgentChatUIShell(deps) {
     if (!w || typeof w.percent !== 'number') {
       return `<div class="usage-window"><div class="usage-window-head"><span class="usage-window-label">${label}</span><span class="usage-window-percent">—</span></div></div>`;
     }
-    const warn = w.percent >= 80 ? ' token-stat-warn' : '';
     const used = t('agentChat.usage.used', { percent: w.percent });
     const reset = fmtUsageReset(w.resetAt);
     const resetLine = reset
@@ -768,7 +947,7 @@ export function createAgentChatUIShell(deps) {
       : '';
     return `<div class="usage-window">`
       + `<div class="usage-window-head"><span class="usage-window-label">${label}</span>`
-      + `<span class="usage-window-percent${warn}">${used}</span></div>`
+      + `<span class="usage-window-percent">${used}</span></div>`
       + resetLine
       + `</div>`;
   }
@@ -861,11 +1040,11 @@ export function createAgentChatUIShell(deps) {
         agentId: targetAgentId,
         persistSessionOnAbort: true,
         suppressAggregatedFinalText: true,
-        onProgress: (statusText, usageInfo) => {
-          const thinkingText = String(statusText || 'Organizing memory...');
+        onProgress: (statusText, usageInfo, toolMeta) => {
+          const { text: thinkingText, meta: normalizedMeta } = normalizeProgressEvent(String(statusText || 'Organizing memory...'), toolMeta);
           if (String(statusText || '').trim()) {
             setAgentStatus(targetAgentId, resolveVisibleAgentStatus(thinkingText, 'Organizing memory...'));
-            pushAgentMessage(targetAgentId, 'thinking', thinkingText, { includeInContext: false });
+            pushAgentMessage(targetAgentId, 'thinking', thinkingText, { includeInContext: false, toolMeta: normalizedMeta });
           }
           if (usageInfo) setAgentContextUsage(targetAgentId, usageInfo.used, usageInfo.max);
         },
@@ -994,10 +1173,11 @@ export function createAgentChatUIShell(deps) {
             totalRounds += 1;
             setAgentStatus(agentId, t('agentChat.runLoop.runningStatus', { round: totalRounds, total: totalRoundsCap }));
           },
-          onProgress: (statusText, usageInfo) => {
+          onProgress: (statusText, usageInfo, toolMeta) => {
+            const { text: thinkingText, meta: normalizedMeta } = normalizeProgressEvent(String(statusText || 'Replying...'), toolMeta);
             if (String(statusText || '').trim()) {
-              setAgentStatus(agentId, resolveVisibleAgentStatus(statusText, 'Replying...'));
-              pushAgentMessage(agentId, 'thinking', statusText, { includeInContext: false });
+              setAgentStatus(agentId, resolveVisibleAgentStatus(thinkingText, 'Replying...'));
+              pushAgentMessage(agentId, 'thinking', thinkingText, { includeInContext: false, toolMeta: normalizedMeta });
             }
             if (usageInfo) setAgentContextUsage(agentId, usageInfo.used, usageInfo.max);
           },
@@ -1510,11 +1690,11 @@ export function createAgentChatUIShell(deps) {
           signal: requestController?.signal,
           persistSessionOnAbort: !wasFirstTurn,
           suppressAggregatedFinalText: true,
-          onProgress: (statusText, usageInfo) => {
-            const thinkingText = String(statusText || 'Replying...');
+          onProgress: (statusText, usageInfo, toolMeta) => {
+            const { text: thinkingText, meta: normalizedMeta } = normalizeProgressEvent(String(statusText || 'Replying...'), toolMeta);
             if (String(statusText || '').trim()) {
               setAgentStatus(targetAgentId, resolveVisibleAgentStatus(thinkingText, 'Replying...'));
-              pushAgentMessage(targetAgentId, 'thinking', thinkingText, { includeInContext: false });
+              pushAgentMessage(targetAgentId, 'thinking', thinkingText, { includeInContext: false, toolMeta: normalizedMeta });
             }
             if (usageInfo) setAgentContextUsage(targetAgentId, usageInfo.used, usageInfo.max);
           },

@@ -12,7 +12,6 @@
                     "--sidebar-item-active-border":  "#6a9a94",
                     "--sidebar-item-active-bg":  "#1c3a3e",
                     "--sidebar-meta-text":  "#7a9a96",
-                    "--agent-sidebar-inactive-text":  "#7a9a96",
                     "--right-panel-bg":  "#0f1f22",
                     "--panel-card-bg":  "#162a2d",
                     "--panel-card-border":  "#3a5a5c",
@@ -20,6 +19,7 @@
                     "--input-bg":  "#0e1a1c",
                     "--input-text":  "#cfe0de",
                     "--input-border":  "#3a5a5c",
+                    "--placeholder-text":  "#569697",
                     "--chip-bg":  "#1c3236",
                     "--chip-text":  "#9ac0bc",
                     "--chip-border":  "#3a5a5c",
@@ -78,7 +78,11 @@
                     "--font-preview-text":  "#9ac0bc",
                     "--font-glyph-fill":  "#cfe0de",
                     "--graph-grid-opacity":  "0.18",
-                    "--graph-node-base-opacity":  "1"
+                    "--graph-node-base-opacity":  "1",
+                    "--diff-del-bg":  "#372122",
+                    "--diff-del-text":  "#ff9898",
+                    "--diff-add-bg":  "#153d26",
+                    "--diff-add-text":  "#9affa0"
                 },
     "nodeFillPalette":  [
                             "#17292b",
@@ -115,7 +119,6 @@
                               "#92549c",
                               "#637d63",
                               "#63569e"
-                          ],
-    "--help-link-text":  "#8dc8ff"
+                          ]
 }
 

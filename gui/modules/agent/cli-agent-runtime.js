@@ -87,6 +87,161 @@ function newRunId() {
   return `run_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
+// Reconstructs a before/after diff for Codex file_change items.
+// Codex only streams { path, kind } — no patch content. We use:
+//   before: `git show HEAD:<relPath>` (last committed state)
+//   after:  current disk content via toolReadByParams
+// For 'create' kind, before is ''. For 'delete' kind, after is ''.
+// Exported for unit testing.
+export function createCodexSnapshotTracker({ toolReadByParams, runProjectCommand, getProjectRoot } = {}) {
+  const toRelPath = (rawPath) => {
+    const p = String(rawPath || '').replace(/\\/g, '/');
+    if (!p) return '';
+    const root = String(typeof getProjectRoot === 'function' ? getProjectRoot() : '').replace(/\\/g, '/').replace(/\/+$/, '');
+    if (root && p.toLowerCase().startsWith(root.toLowerCase() + '/')) return p.slice(root.length + 1);
+    return p;
+  };
+
+  const readFileText = async (relPath) => {
+    try {
+      const parts = [];
+      let offset = 1;
+      for (let i = 0; i < 20; i++) {
+        const r = await toolReadByParams({ path: relPath, offset, limit: 2000 });
+        parts.push(typeof r?.content === 'string' ? r.content : '');
+        if (!r?.truncated || !r?.nextOffset) break;
+        offset = r.nextOffset;
+      }
+      return parts.join('');
+    } catch (_) {
+      return null;
+    }
+  };
+
+  const gitShowFile = async (relPath) => {
+    try {
+      const gitPath = relPath.replace(/\\/g, '/');
+      const result = await runProjectCommand(`git show HEAD:${gitPath}`);
+      if (result?.code === 128) {
+        const stderr = String(result.stderr ?? '');
+        if (stderr.includes('not a git repository')) return null;
+        // Path not in HEAD: return sentinel so callers can distinguish from null.
+        return '';
+      }
+      if (!result?.ok) return null;
+      return String(result.stdout ?? '');
+    } catch (_) {
+      return null;
+    }
+  };
+
+  // Pre-snapshots captured at item.started (before Codex writes the file).
+  // Keyed by Codex item id → Map<relPath, content>.
+  const beforeSnapshots = new Map();
+
+  // Files snapshotted at run-start via preloadUntrackedFiles.
+  // Covers files that exist on disk but are not committed to git HEAD,
+  // which git show HEAD:<path> can't provide content for.
+  const preloadedFiles = new Map();
+
+  return {
+    // Run once at the start of a Codex session (before spawning the process).
+    // Snapshots two sets of files so onCompleted can produce real before/after diffs:
+    //   1. Untracked files (git ls-files --others): not in git HEAD at all.
+    //   2. Modified tracked files (git diff --name-only HEAD): in git HEAD but the
+    //      on-disk version differs — git show HEAD gives the original, not the
+    //      current disk state, so diffs against them would be wrong without a preload.
+    async preloadUntrackedFiles() {
+      if (!runProjectCommand || !toolReadByParams) return;
+      try {
+        const [untrackedRes, modifiedRes] = await Promise.all([
+          runProjectCommand('git ls-files --others --exclude-standard'),
+          runProjectCommand('git diff --name-only HEAD'),
+        ]);
+        const collect = (res) => res?.ok
+          ? String(res.stdout ?? '').split('\n').map((s) => s.trim()).filter(Boolean)
+          : [];
+        const paths = [...new Set([...collect(untrackedRes), ...collect(modifiedRes)])];
+        await Promise.all(paths.map(async (relPath) => {
+          const content = await readFileText(relPath);
+          if (content != null) preloadedFiles.set(relPath, content);
+        }));
+      } catch (_) {}
+    },
+
+    // Call when item.started fires for a file_change item, BEFORE Codex writes.
+    // Reads and caches current on-disk content so onCompleted can diff against it.
+    async onStarted(id, rawPaths) {
+      if (!toolReadByParams || !id) return;
+      const paths = Array.isArray(rawPaths) ? rawPaths.filter(Boolean) : [];
+      if (paths.length === 0) return;
+      const byPath = new Map();
+      await Promise.all(paths.map(async (rawPath) => {
+        const relPath = toRelPath(rawPath);
+        if (!relPath) return;
+        const content = await readFileText(relPath);
+        if (content != null) byPath.set(relPath, content);
+      }));
+      if (byPath.size > 0) beforeSnapshots.set(String(id), byPath);
+    },
+
+    // Call when item.completed file_change arrives.
+    // rawPath: absolute or relative path from the Codex event.
+    // kind: 'update' | 'create' | 'delete' (defaults to 'update').
+    // id: Codex item id (correlates with onStarted pre-snapshot).
+    // Returns { relPath, oldText, newText } or null on failure / graceful degrade.
+    async onCompleted(rawPath, kind, id) {
+      if (!toolReadByParams || !runProjectCommand) return null;
+      const relPath = toRelPath(rawPath);
+      if (!relPath) return null;
+      const k = String(kind || 'update').toLowerCase();
+
+      if (k === 'delete') {
+        const before = await gitShowFile(relPath);
+        if (before == null) return null;
+        return { relPath, oldText: before, newText: '' };
+      }
+
+      if (k === 'create') {
+        const after = await readFileText(relPath);
+        if (after == null) return null;
+        // Track created files so a subsequent edit in the same run sees correct oldText.
+        preloadedFiles.set(relPath, after);
+        return { relPath, oldText: '', newText: after };
+      }
+
+      // 'update' (or unknown kind): prefer pre-snapshot for the before state.
+      // This works even for uncommitted files because it reads content before
+      // Codex writes, bypassing the need for git history entirely.
+      const snapMap = id ? beforeSnapshots.get(String(id)) : null;
+      const preSnap = snapMap?.get(relPath);
+      const after = await readFileText(relPath);
+      if (after == null) return null;
+
+      if (preSnap != null) {
+        snapMap.delete(relPath);
+        if (snapMap.size === 0) beforeSnapshots.delete(String(id));
+        preloadedFiles.set(relPath, after);
+        return { relPath, oldText: preSnap, newText: after };
+      }
+
+      // Check the run-start preload (untracked files snapshotted before the run).
+      const preLoad = preloadedFiles.get(relPath);
+      if (preLoad != null) {
+        preloadedFiles.set(relPath, after);
+        return { relPath, oldText: preLoad, newText: after };
+      }
+
+      // Fall back to git for committed files. If the file isn't in HEAD and
+      // there's no snapshot at all, degrade gracefully (no diff shown).
+      const before = await gitShowFile(relPath);
+      if (before == null || before === '') return null;
+      preloadedFiles.set(relPath, after);
+      return { relPath, oldText: before, newText: after };
+    },
+  };
+}
+
 export function createCliAgentRuntime(deps = {}) {
   const {
     electronAPI,
@@ -101,6 +256,8 @@ export function createCliAgentRuntime(deps = {}) {
     applyAgentTodos,                // (agentId, items) => void — mirror native todos into the panel
     showAgentPlan,                  // (agentId, planText) => void — surface a proposed plan (display-only)
     notifyAgent,                    // (agentId, i18nKey, params?) => void — push a translated system note
+    toolReadByParams,               // async ({ path, limit? }) => { content, truncated?, nextOffset? }
+    runProjectCommand,              // async (command) => { ok, code, stdout, stderr } — runs in project root
     t = (key) => key,               // (key, params?) => string — i18n translator
   } = deps;
 
@@ -210,6 +367,12 @@ export function createCliAgentRuntime(deps = {}) {
     const prior = record.byProfile[profile.id] || null;
     const resumeId = decideResume(prior, profile, agentDir);
 
+    // Snapshot tracker shared across both runAttempt calls (resume + fresh).
+    // The preload runs concurrently with Codex startup: by the time the agent
+    // finishes thinking and starts writing files, the untracked-file cache is ready.
+    const snapshotTracker = createCodexSnapshotTracker({ toolReadByParams, runProjectCommand, getProjectRoot });
+    const preloadDone = snapshotTracker.preloadUntrackedFiles();
+
     // One spawn attempt. ALWAYS resolves an outcome (never rejects); the
     // orchestrator below decides on retry. A successful resume always re-emits a
     // session event (Claude re-emits init; Codex re-emits thread.started with the
@@ -293,9 +456,55 @@ export function createCliAgentRuntime(deps = {}) {
         } });
       };
 
+      const applyEventAsync = async (ev) => {
+        if (!ev) return;
+        if (ev.kind === 'snapshot_before') {
+          try { await snapshotTracker.onStarted(ev.id, ev.paths); } catch (_) {}
+          return;
+        }
+        if (ev.kind === 'tool_call' && ev.snapshotPath) {
+          try { await preloadDone; } catch (_) {}
+          const diff = await snapshotTracker.onCompleted(ev.snapshotPath, ev.snapshotKind, ev.id);
+          if (diff) {
+            try {
+              params?.onProgress?.(toolCallProgressText(ev), null, {
+                name: 'edit',
+                args: { path: diff.relPath, oldText: diff.oldText, newText: diff.newText },
+              });
+            } catch (_) {}
+            try { params?.onToolCall?.(functionCallTurn(profile.driver, capturedModel, ev)); } catch (_) {}
+            return;
+          }
+          // git/read failed (untracked file, no git repo, etc.) — fall through
+        }
+        // Claude Code Write tool: read the file before it's overwritten so we can
+        // show a red/green diff instead of the content-only (all-eq) display.
+        if (ev.kind === 'tool_call' && String(ev.name || '').toLowerCase() === 'write'
+            && typeof toolReadByParams === 'function') {
+          const rawPath = String(ev.args?.file_path || ev.args?.path || '');
+          if (rawPath) {
+            const root = typeof getProjectRoot === 'function'
+              ? String(getProjectRoot()).replace(/\\/g, '/').replace(/\/+$/, '') : '';
+            const p = rawPath.replace(/\\/g, '/');
+            const relPath = (root && p.toLowerCase().startsWith(root.toLowerCase() + '/'))
+              ? p.slice(root.length + 1) : p;
+            let oldText = null;
+            try {
+              const r = await toolReadByParams({ path: relPath });
+              if (typeof r?.content === 'string') oldText = r.content;
+            } catch (_) {}
+            if (oldText !== null) {
+              applyEvent({ ...ev, args: { ...ev.args, oldText } });
+              return;
+            }
+          }
+        }
+        applyEvent(ev);
+      };
+
       const applyEvent = (ev) => {
         if (!ev) return;
-        if (ev.kind === 'batch') { for (const e of ev.events) applyEvent(e); return; }
+        if (ev.kind === 'batch') { for (const e of ev.events) applyEventAsync(e); return; }
         switch (ev.kind) {
           case 'session':
             sessionEverCaptured = true;
@@ -308,7 +517,7 @@ export function createCliAgentRuntime(deps = {}) {
             break;
           case 'tool_call':
             try { params?.onToolCall?.(functionCallTurn(profile.driver, capturedModel, ev)); } catch (_) {}
-            try { params?.onProgress?.(toolCallProgressText(ev), null); } catch (_) {}
+            try { params?.onProgress?.(toolCallProgressText(ev), null, { name: String(ev?.name || ''), args: ev?.args || {} }); } catch (_) {}
             break;
           case 'tool_result':
             try { params?.onToolOutput?.(toolOutputTurn(profile.driver, capturedModel, ev)); } catch (_) {}
@@ -341,7 +550,7 @@ export function createCliAgentRuntime(deps = {}) {
         if (data.kind === 'line') {
           let obj = null;
           try { obj = JSON.parse(data.line); } catch (_) { return; }
-          try { applyEvent(driver.parseEvent(obj)); } catch (_) {}
+          try { await applyEventAsync(driver.parseEvent(obj)); } catch (_) {}
         } else if (data.kind === 'close') {
           // User-initiated stop: we killed the process, so its non-zero exit is NOT
           // a failure — surface it as an abort (silent "stopped"), never an error

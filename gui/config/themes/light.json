@@ -12,7 +12,6 @@
                     "--sidebar-item-active-border":  "#3f79cb",
                     "--sidebar-item-active-bg":  "#d1e4fb",
                     "--sidebar-meta-text":  "#496482",
-                    "--agent-sidebar-inactive-text":  "#496482",
                     "--right-panel-bg":  "#edf3f9",
                     "--panel-card-bg":  "#edf3f9",
                     "--panel-card-border":  "#7aaad6",
@@ -20,6 +19,7 @@
                     "--input-bg":  "#fafdff",
                     "--input-text":  "#2a4970",
                     "--input-border":  "#5e92c4",
+                    "--placeholder-text":  "#63a8e6",
                     "--chip-bg":  "#e3efff",
                     "--chip-text":  "#24548b",
                     "--chip-border":  "#6a9dca",
@@ -79,7 +79,11 @@
                     "--font-glyph-fill":  "#17304f",
                     "--graph-grid-opacity":  "0.18",
                     "--graph-node-base-opacity":  "1",
-                    "--help-link-text":  "#1a0dab"
+                    "--help-link-text":  "#1a0dab",
+                    "--diff-del-bg":  "#f4e3e5",
+                    "--diff-del-text":  "#8c1414",
+                    "--diff-add-bg":  "#e0efe7",
+                    "--diff-add-text":  "#196030"
                 },
     "nodeFillPalette":  [
                             "#dce9f8",
@@ -116,7 +120,6 @@
                               "#cdb577",
                               "#87bed0",
                               "#a6aebe"
-                          ],
-    "--help-link-text":  "#8dc8ff"
+                          ]
 }
 

@@ -172,7 +172,15 @@ export function createEditMirrorUpdateCommands(deps) {
 
     const nextRect = params.lrtb ? normalizeRectFromLrtb(params.lrtb) : { x: node.x, y: node.y, w: node.w, h: node.h };
     if (!isPlacementLegalForNode(nextRect, node.id)) {
-      throw new Error('illegal overlap after move/resize (must be disjoint or containment)');
+      const conflicting = nodes.find((n) => {
+        if (n.id === node.id) return false;
+        if (!isNodeVisibleInLayer(n, getActiveLayerIndex())) return false;
+        if (rectEquals(n, nextRect)) return false;
+        if (!rectsIntersect(n, nextRect)) return false;
+        return !rectContainsRect(n, nextRect) && !rectContainsRect(nextRect, n);
+      });
+      const who = conflicting ? ` with "${String(conflicting.name || conflicting.id)}"` : '';
+      throw new Error(`illegal overlap${who} after move/resize (must be disjoint or containment)`);
     }
 
     const layerId = params.layer ? normalizeLayerId(params.layer) : state.activeLayer;

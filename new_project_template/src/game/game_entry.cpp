@@ -2,6 +2,7 @@
 
 #include "engine/debug/debug_tools.hpp"
 #include "engine/general/engine_control.hpp"
+// diff test
 
 void __GameStart__() {
     engine::general::set_vsync_enabled(true);

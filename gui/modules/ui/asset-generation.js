@@ -184,14 +184,37 @@ export function createAssetGeneration(deps) {
     const lines = (text || '(empty preview)').split(/\r?\n/);
     const fontFamily = fontBuildState.fontFamily ? `'${fontBuildState.fontFamily}', sans-serif` : 'sans-serif';
     const padding = 8;
+    const fontKerning = hinting === 'none' ? 'none' : 'normal';
+
+    // Measure ascent/descent using alphabetic baseline — same approach as the export —
+    // so the preview baseline position matches where glyphs actually sit in the atlas.
+    const metricCanvas = document.createElement('canvas');
+    metricCanvas.width = 16;
+    metricCanvas.height = 16;
+    const metricCtx = metricCanvas.getContext('2d');
+    metricCtx.font = `${size}px ${fontFamily}`;
+    metricCtx.textBaseline = 'alphabetic';
+    metricCtx.fontKerning = fontKerning;
+    let maxAscent = 0;
+    let maxDescent = 0;
+    for (const line of lines) {
+      if (!line) continue;
+      const m = metricCtx.measureText(line);
+      maxAscent = Math.max(maxAscent, Math.ceil(m.actualBoundingBoxAscent || size * 0.8));
+      maxDescent = Math.max(maxDescent, Math.ceil(m.actualBoundingBoxDescent || size * 0.25));
+    }
+    maxAscent = Math.max(1, maxAscent);
+    maxDescent = Math.max(1, maxDescent);
+    // Match export's lineHeight = Math.max(size, maxAscent + maxDescent)
+    const lineH = Math.max(size, maxAscent + maxDescent);
 
     const baseCanvas = document.createElement('canvas');
     const baseCtx = baseCanvas.getContext('2d');
     if (!baseCtx) return;
 
     baseCtx.font = `${size}px ${fontFamily}`;
-    baseCtx.textBaseline = 'top';
-    baseCtx.fontKerning = hinting === 'none' ? 'none' : 'normal';
+    baseCtx.textBaseline = 'alphabetic';
+    baseCtx.fontKerning = fontKerning;
 
     let maxLineWidth = 0;
     for (const line of lines) {
@@ -200,7 +223,7 @@ export function createAssetGeneration(deps) {
     }
 
     const baseW = Math.max(1, maxLineWidth + padding * 2);
-    const baseH = Math.max(1, lines.length * size + padding * 2);
+    const baseH = Math.max(1, lines.length * lineH + padding * 2);
     baseCanvas.width = baseW;
     baseCanvas.height = baseH;
 
@@ -210,15 +233,16 @@ export function createAssetGeneration(deps) {
       baseCtx.fillRect(0, 0, baseW, baseH);
     }
     baseCtx.font = `${size}px ${fontFamily}`;
-    baseCtx.textBaseline = 'top';
-    baseCtx.fontKerning = hinting === 'none' ? 'none' : 'normal';
+    baseCtx.textBaseline = 'alphabetic';
+    baseCtx.fontKerning = fontKerning;
     baseCtx.fillStyle = cssVar('--font-preview-text', '#e8eef7');
 
     for (let i = 0; i < lines.length; i += 1) {
-      baseCtx.fillText(lines[i], padding, padding + i * size);
+      // Baseline at padding + i*lineH + maxAscent, mirroring padY+maxAscent in the export.
+      baseCtx.fillText(lines[i], padding, padding + i * lineH + maxAscent);
     }
     if (aa === 'off') {
-      applyAlphaThresholdToCanvas(baseCtx, baseW, baseH, 128);
+      applyAlphaThresholdToCanvas(baseCtx, baseW, baseH, 200);
     }
 
     const outCtx = fontPreviewCanvas.getContext('2d');
@@ -462,37 +486,71 @@ export function createAssetGeneration(deps) {
 
     const maxPageWidth = 2048;
     const maxPageHeight = 2048;
-    // Base transparent margin around every glyph. padX may grow below to absorb
-    // horizontal ink overhang; padY stays fixed because the box height already uses
-    // the set-wide max ascent/descent, so no glyph can exceed it vertically.
+    // Base transparent margin around every glyph.
     const basePad = Math.max(1, Math.round(size * 0.125));
     const padY = basePad;
 
-    const measureCanvas = document.createElement('canvas');
-    measureCanvas.width = 16;
-    measureCanvas.height = 16;
-    const measureCtx = measureCanvas.getContext('2d');
-    measureCtx.font = `${size}px '${fontBuildState.fontFamily}'`;
-    measureCtx.textBaseline = 'alphabetic';
+    // Render each glyph to a private scan canvas and read actual ink pixel bounds.
+    // measureText's bounding box can disagree with real rendered pixels (AA fringe,
+    // hinting, canvas-size-dependent rasterisation paths), which would cause glyph ink
+    // to bleed across atlas cell boundaries. We scan with the same alpha threshold that
+    // applyAlphaThresholdToCanvas will use on the final atlas so the bounds reflect
+    // exactly the set of pixels that will survive into the output.
+    const scanFontStr = `${size}px '${fontBuildState.fontFamily}'`;
+    const scanFontKerning = hinting === 'none' ? 'none' : 'normal';
+    // Give the pen enough margin inside the scan canvas to catch any overhang.
+    const scanPenX = Math.max(Math.ceil(size), 16);
+    const scanPenY = Math.max(Math.ceil(size * 1.5), 24);
+    const scanW = scanPenX + Math.max(Math.ceil(size * 2.5), 48);
+    const scanH = scanPenY + Math.max(Math.ceil(size), 16);
+    const scanCanvas = document.createElement('canvas');
+    scanCanvas.width = scanW;
+    scanCanvas.height = scanH;
+    const scanCtx = scanCanvas.getContext('2d');
+    scanCtx.font = scanFontStr;
+    scanCtx.textBaseline = 'alphabetic';
+    scanCtx.fontKerning = scanFontKerning;
+    scanCtx.fillStyle = '#FFFFFF';
+    // AA=off: raise to 200 so Chromium's grayscale-AA "bridge" pixels between
+    // thin strokes (alpha ~120-160) are discarded; only solid-core pixels (200+) survive.
+    // AA=on: 1 captures the full ink extent for bounds measurement (no binarisation applied).
+    const scanThreshold = antialias === 'off' ? 200 : 1;
 
     const metricsList = chars.map((ch) => {
-      const m = measureCtx.measureText(ch);
+      scanCtx.clearRect(0, 0, scanW, scanH);
+      scanCtx.fillText(ch, scanPenX, scanPenY);
+      const m = scanCtx.measureText(ch);
       const advance = Math.max(0, Math.ceil(m.width || 0));
-      const ascent = Math.max(0, Math.ceil(m.actualBoundingBoxAscent || size * 0.8));
-      const descent = Math.max(0, Math.ceil(m.actualBoundingBoxDescent || size * 0.25));
-      // Horizontal ink overhang vs the advance cell: a glyph can ink left of the pen
-      // origin (actualBoundingBoxLeft) or past its advance (actualBoundingBoxRight),
-      // e.g. italics, swashes, 'f'/'W'. Track the worst side so padX can absorb it.
-      const leftOverhang = Math.max(0, Math.ceil(m.actualBoundingBoxLeft || 0));
-      const rightOverhang = Math.max(0, Math.ceil((m.actualBoundingBoxRight || 0) - advance));
+
+      const imageData = scanCtx.getImageData(0, 0, scanW, scanH);
+      const data = imageData.data;
+      let minX = scanW, maxX = -1, minY = scanH, maxY = -1;
+      for (let i = 0; i < data.length; i += 4) {
+        if (data[i + 3] >= scanThreshold) {
+          const px = (i >> 2) % scanW;
+          const py = (i >> 2) / scanW | 0;
+          if (px < minX) minX = px;
+          if (px > maxX) maxX = px;
+          if (py < minY) minY = py;
+          if (py > maxY) maxY = py;
+        }
+      }
+
+      const hasInk = maxX >= minX;
+      const ascent = hasInk ? Math.max(0, scanPenY - minY) : 0;
+      // +1: the pen row (baseline) itself occupies a pixel row that neither ascent
+      // nor descent otherwise claims, so ink at maxY=scanPenY would give descent=0
+      // but still needs 1 row allocated — include the baseline row in descent.
+      const descent = hasInk ? Math.max(0, maxY - scanPenY + 1) : 0;
+      // leftOverhang: ink pixels left of the pen origin (e.g. italic leading serifs).
+      // rightOverhang: ink pixels past the advance-width right edge.
+      const leftOverhang = hasInk ? Math.max(0, scanPenX - minX) : 0;
+      const rightOverhang = hasInk ? Math.max(0, maxX - (scanPenX + advance - 1)) : 0;
       return { ch, advance, ascent, descent, overhang: Math.max(leftOverhang, rightOverhang) };
     });
 
-    // Grow horizontal padding so even the worst overhanging glyph keeps a >=1px
-    // transparent gap between its ink and the sampled box edge (the draw system can
-    // interpolate up to 1px outside a sprite under scale/rotation, bleeding from
-    // atlas neighbours). padX only grows uniformly, so glyphs are still drawn at
-    // +padX and the exported offsetX stays 0 — no layout/baseline change.
+    // padX grows to guarantee at least 1px transparent gap beyond the widest real ink
+    // boundary, so the engine cannot accidentally sample a neighbour's glyph.
     const maxOverhang = Math.max(0, ...metricsList.map((m) => m.overhang));
     const padX = Math.max(basePad, maxOverhang + 1);
 
@@ -572,24 +630,35 @@ export function createAssetGeneration(deps) {
       canvas.height = Math.max(1, p.height);
       const ctx = canvas.getContext('2d');
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.font = `${size}px '${fontBuildState.fontFamily}'`;
-      ctx.textBaseline = 'alphabetic';
-      ctx.fillStyle = '#FFFFFF';
-      ctx.imageSmoothingEnabled = antialias !== 'off';
+      ctx.imageSmoothingEnabled = false;
       pageCanvases.set(p.page, { canvas, ctx });
     }
 
     const baselineY = padY + maxAscent;
+    // Render every glyph at the fixed (scanPenX, scanPenY) on the scan canvas and
+    // drawImage-copy the cell region into the atlas.  Re-using the same absolute render
+    // position for every glyph is critical: different absolute coordinates on a large
+    // canvas shift the glyph by a sub-pixel (the rasteriser's grid-fit phase depends on
+    // the fractional part of the pen position in device pixels), which changes which edge
+    // pixels survive the alpha threshold and causes glyphs to bleed into neighbours when
+    // compared against the bounds that were measured at scanPenX/scanPenY in pass 1.
+    const cellSrcX = scanPenX - padX;        // left edge of the cell inside scan canvas
+    const cellSrcY = scanPenY - baselineY;   // top  edge of the cell inside scan canvas
     for (const glyph of glyphDrafts) {
       if (glyph.ch === ' ') continue;
       const holder = pageCanvases.get(glyph.page);
       if (!holder) continue;
-      holder.ctx.fillText(glyph.ch, glyph.x + padX, glyph.y + baselineY);
+      scanCtx.clearRect(0, 0, scanW, scanH);
+      scanCtx.fillText(glyph.ch, scanPenX, scanPenY);
+      // drawImage clips source coordinates to [0, scanW/H] automatically, so negative
+      // cellSrcY (when scanPenY < baselineY, i.e. maxAscent fills the whole headroom)
+      // just produces transparent rows at the glyph-cell top — exactly the padY zone.
+      holder.ctx.drawImage(scanCanvas, cellSrcX, cellSrcY, glyph.w, glyph.h, glyph.x, glyph.y, glyph.w, glyph.h);
     }
 
     if (antialias === 'off') {
       for (const holder of pageCanvases.values()) {
-        applyAlphaThresholdToCanvas(holder.ctx, holder.canvas.width, holder.canvas.height, 128);
+        applyAlphaThresholdToCanvas(holder.ctx, holder.canvas.width, holder.canvas.height, 200);
       }
     }
 

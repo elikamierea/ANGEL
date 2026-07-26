@@ -110,6 +110,9 @@ add_library(lodepng STATIC
 target_include_directories(lodepng PUBLIC vendor)
 
 function(angel_enable_fast_build target_name)
+    if(MSVC)
+        target_compile_options(${target_name} PRIVATE /utf-8)
+    endif()
     if(ANGEL_ENABLE_PCH)
         target_precompile_headers(${target_name} PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_SOURCE_DIR}/src/pch.hpp>")
     endif()
@@ -222,18 +225,29 @@ endif()
 set_target_properties(angel_engine PROPERTIES OUTPUT_NAME game)
 
 if(EXISTS "${CMAKE_SOURCE_DIR}/src/assets")
-    add_custom_command(TARGET angel_engine POST_BUILD
+    file(GLOB_RECURSE ASSET_FILES
+        CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/src/assets/*")
+
+    # Use a stamp file so ninja re-runs the pack whenever any asset is newer than
+    # the stamp — regardless of whether angel_engine itself was recompiled.
+    # (POST_BUILD only fires when the target re-links, which misses asset-only changes.)
+    set(_ASSETS_STAMP "${CMAKE_CURRENT_BINARY_DIR}/assets.pak.stamp")
+
+    add_custom_command(
+        OUTPUT "${_ASSETS_STAMP}"
         COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${CMAKE_SOURCE_DIR}/src/assets"
                 "$<TARGET_FILE_DIR:angel_engine>/assets"
-        COMMENT "Copying assets to runtime output directory")
-
-    add_custom_command(TARGET angel_engine POST_BUILD
         COMMAND powershell -NoProfile -ExecutionPolicy Bypass
                 -File "${CMAKE_SOURCE_DIR}/tools/build_assets_pak.ps1"
                 -SourceDir "${CMAKE_SOURCE_DIR}/src/assets"
                 -OutPak "$<TARGET_FILE_DIR:angel_engine>/assets.pak"
-        COMMENT "Packing assets.pak")
+        COMMAND ${CMAKE_COMMAND} -E touch "${_ASSETS_STAMP}"
+        DEPENDS ${ASSET_FILES}
+        COMMENT "Copying assets and packing assets.pak")
+
+    add_custom_target(pack_assets DEPENDS "${_ASSETS_STAMP}")
+    add_dependencies(angel_engine pack_assets)
 endif()
 
 if(ANGEL_ENABLE_STEAM)

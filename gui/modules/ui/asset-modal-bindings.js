@@ -20,10 +20,13 @@ export function createAssetModalBindings(deps) {
     resolveRunTestModal,
     setStatus,
     t = (key) => key,
+    normalizeToolRelativePath = null,
+    fileExistsAtRelPath = null,
   } = deps;
 
   const {
     spriteFilesInput,
+    spritePathInput,
     spriteNameInput,
     spriteNote,
     spritePivotXInput,
@@ -38,6 +41,7 @@ export function createAssetModalBindings(deps) {
     fontSourceSystemRadio,
     fontSourceFileRadio,
     fontFileInput,
+    fontPathInput,
     fontNameInput,
     fontSystemSelect,
     fontNote,
@@ -55,6 +59,7 @@ export function createAssetModalBindings(deps) {
     audioCancel,
     audioCreate,
     audioFileInput,
+    audioPathInput,
     audioNameInput,
     audioFormatInput,
     audioNote,
@@ -67,6 +72,17 @@ export function createAssetModalBindings(deps) {
     runTestConfirm,
     runTestModal,
   } = dom;
+
+  function normalizeSrcPath(rawPath) {
+    if (!normalizeToolRelativePath || !rawPath) return null;
+    try {
+      const p = rawPath.replace(/^\/+/, '').replace(/\\/g, '/');
+      const src = p.toLowerCase().startsWith('src/') ? p : `src/${p}`;
+      return normalizeToolRelativePath(src);
+    } catch {
+      return null;
+    }
+  }
 
   function deriveAssetBaseName(file) {
     const name = String(file?.name || '').trim();
@@ -149,6 +165,16 @@ export function createAssetModalBindings(deps) {
       spriteCreate.addEventListener('click', async () => {
         try {
           spriteCreate.disabled = true;
+          const name = String(spriteNameInput?.value || '').trim();
+          const normalizedPath = normalizeSrcPath(String(spritePathInput?.value || '').trim());
+          const checkPath = normalizedPath && name ? `${normalizedPath}/${name}.txt` : null;
+          let isReplace = false;
+          if (checkPath && fileExistsAtRelPath) {
+            if (await fileExistsAtRelPath(checkPath)) {
+              if (!window.confirm(`"${name}" already exists. Replace it?`)) return;
+              isReplace = true;
+            }
+          }
           const result = await createSpriteAtlasAndMetadata();
           closeSpriteModal();
           if (spriteNameInput) spriteNameInput.value = '';
@@ -264,6 +290,16 @@ export function createAssetModalBindings(deps) {
       fontCreate.addEventListener('click', async () => {
         try {
           fontCreate.disabled = true;
+          const name = String(fontNameInput?.value || '').trim();
+          const normalizedPath = normalizeSrcPath(String(fontPathInput?.value || '').trim());
+          const checkPath = normalizedPath && name ? `${normalizedPath}/${name}.font.txt` : null;
+          let isReplace = false;
+          if (checkPath && fileExistsAtRelPath) {
+            if (await fileExistsAtRelPath(checkPath)) {
+              if (!window.confirm(`"${name}" already exists. Replace it?`)) return;
+              isReplace = true;
+            }
+          }
           const result = await createBitmapFontAssets();
           closeFontModal();
           if (fontNameInput) fontNameInput.value = '';
@@ -324,6 +360,18 @@ export function createAssetModalBindings(deps) {
         }
         try {
           audioCreate.disabled = true;
+          const rawName = String(audioNameInput?.value || '').trim();
+          const name = rawName.replace(/\.(wav|ogg)$/i, '').trim();
+          const format = String(audioFormatInput?.value || 'wav').trim().toLowerCase();
+          const normalizedPath = normalizeSrcPath(String(audioPathInput?.value || '').trim());
+          const checkPath = normalizedPath && name ? `${normalizedPath}/${name}.${format}` : null;
+          let isReplace = false;
+          if (checkPath && fileExistsAtRelPath) {
+            if (await fileExistsAtRelPath(checkPath)) {
+              if (!window.confirm(`"${name}.${format}" already exists. Replace it?`)) return;
+              isReplace = true;
+            }
+          }
           if (audioNote) audioNote.textContent = t('modal.audio.status.converting');
           setStatus(t('modal.audio.status.converting'));
           const result = await createAudioAsset();

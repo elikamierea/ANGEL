@@ -914,6 +914,42 @@ ipcMain.handle('project:deletePath', async (_event, payload) => {
   return { ok: true, path: normalized };
 });
 
+ipcMain.handle('project:createFolder', async (_event, payload) => {
+  const rootPath = payload?.rootPath;
+  const relativePath = payload?.path;
+  const { normalized, fullPath } = resolveProjectToolPath(rootPath, relativePath);
+  await fs.mkdir(fullPath, { recursive: true });
+  return { ok: true, path: normalized };
+});
+
+ipcMain.handle('project:movePaths', async (_event, payload) => {
+  const rootPath = payload?.rootPath;
+  const targetFolder = String(payload?.targetFolder || '');
+  const paths = Array.isArray(payload?.paths) ? payload.paths : [];
+  const { fullPath: fullTarget } = resolveProjectToolPath(rootPath, targetFolder);
+  await fs.mkdir(fullTarget, { recursive: true });
+  for (const relPath of paths) {
+    const { fullPath: fullSrc } = resolveProjectToolPath(rootPath, relPath);
+    const dest = path.join(fullTarget, path.basename(fullSrc));
+    await fs.rename(fullSrc, dest);
+  }
+  return { ok: true };
+});
+
+ipcMain.handle('project:copyPaths', async (_event, payload) => {
+  const rootPath = payload?.rootPath;
+  const targetFolder = String(payload?.targetFolder || '');
+  const paths = Array.isArray(payload?.paths) ? payload.paths : [];
+  const { fullPath: fullTarget } = resolveProjectToolPath(rootPath, targetFolder);
+  await fs.mkdir(fullTarget, { recursive: true });
+  for (const relPath of paths) {
+    const { fullPath: fullSrc } = resolveProjectToolPath(rootPath, relPath);
+    const dest = path.join(fullTarget, path.basename(fullSrc));
+    await fs.cp(fullSrc, dest, { recursive: true });
+  }
+  return { ok: true };
+});
+
 ipcMain.handle('project:saveChatExport', async (_event, payload) => {
   const defaultFileNameRaw = typeof payload?.defaultFileName === 'string' ? payload.defaultFileName.trim() : 'agent-chat-export.json';
   const defaultFileName = defaultFileNameRaw || 'agent-chat-export.json';
@@ -2024,6 +2060,7 @@ ipcMain.handle('cliAgent:usageWindows', async (_event, payload) => {
 
 // Stop a CLI run. On Windows the child may be a cmd.exe shell wrapper (the codex
 // npm `.cmd` shim runs under shell:true), whose real worker (node → codex.exe) is
+// --- CLI agent process stop --------------------------------------------------
 // a GRANDCHILD — child.kill() would only kill the wrapper and leave codex.exe
 // running, so the UI "stop" silently does nothing. taskkill /T kills the whole
 // process tree, /F forces it. Claude (a real .exe, shell:false) is fine either way

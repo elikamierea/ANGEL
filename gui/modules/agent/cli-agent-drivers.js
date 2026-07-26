@@ -332,6 +332,19 @@ function parseCodexEvent(obj) {
     return { kind: 'session', sessionId: asString(obj.thread_id) };
   }
 
+  // Pre-snapshot: read the file BEFORE Codex writes it so the runtime can
+  // produce a real before/after diff even for uncommitted or untracked files.
+  if (type === 'item.started' && obj.item && typeof obj.item === 'object'
+      && asString(obj.item.type) === 'file_change') {
+    const item = obj.item;
+    const changes = Array.isArray(item.changes) ? item.changes : [];
+    const paths = changes.map((c) => asString(c?.path)).filter(Boolean);
+    const id = asString(item.id);
+    if (id && paths.length > 0) {
+      return { kind: 'snapshot_before', id, paths };
+    }
+  }
+
   // Codex streams its plan/todo list across item.started → item.updated(*) →
   // item.completed, each carrying the FULL items (a full replace). Mirror every
   // phase so ANGEL's todo panel tracks progress live instead of only blipping in
@@ -340,7 +353,6 @@ function parseCodexEvent(obj) {
       && obj.item && typeof obj.item === 'object' && asString(obj.item.type) === 'todo_list') {
     return { kind: 'todo', items: normalizeTodoList(obj.item.items, 'codex') };
   }
-
   if (type === 'item.completed' && obj.item && typeof obj.item === 'object') {
     const item = obj.item;
     const itemType = asString(item.type);
@@ -357,13 +369,18 @@ function parseCodexEvent(obj) {
       const isError = itemType === 'command_execution'
         ? Number(item.exit_code) > 0
         : asString(item.status) === 'failed';
-      return {
-        kind: 'batch',
-        events: [
-          { kind: 'tool_call', id, name: desc.name, args: desc.args },
-          { kind: 'tool_result', toolUseId: id, output: desc.output, isError },
-        ],
-      };
+      let snapshotPath, snapshotKind;
+      if (itemType === 'file_change') {
+        const changes = Array.isArray(item.changes) ? item.changes : [];
+        const first = changes[0];
+        snapshotPath = asString(first?.path) || asString(item.path) || '';
+        snapshotKind = asString(first?.kind) || 'update';
+      }
+      const events = [
+        { kind: 'tool_call', id, name: desc.name, args: desc.args, snapshotPath, snapshotKind },
+        { kind: 'tool_result', toolUseId: id, output: desc.output, isError },
+      ];
+      return { kind: 'batch', events };
     }
     return { kind: 'ignore' };
   }
@@ -386,7 +403,6 @@ function parseCodexEvent(obj) {
     return { kind: 'error', message: extractCodexErrorMessage(obj.error?.message) || 'codex turn failed' };
   }
 
-  // turn.started, item.started, reasoning, etc. are not surfaced.
   return { kind: 'ignore' };
 }
 

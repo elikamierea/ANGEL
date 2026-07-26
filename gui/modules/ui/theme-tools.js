@@ -18,6 +18,7 @@ const THEME_COLOR_KEYS = [
   '--input-bg',
   '--input-text',
   '--input-border',
+  '--placeholder-text',
   '--chip-bg',
   '--chip-text',
   '--chip-border',
@@ -72,6 +73,10 @@ const THEME_COLOR_KEYS = [
   '--font-preview-bg',
   '--font-preview-text',
   '--font-glyph-fill',
+  '--diff-del-bg',
+  '--diff-del-text',
+  '--diff-add-bg',
+  '--diff-add-text',
 ];
 
 const RGBA_COLOR_KEYS = [
@@ -109,6 +114,7 @@ const COLOR_INPUT_BINDINGS = [
   ['themeInputBg', '--input-bg', '#101318'],
   ['themeInputText', '--input-text', '#e7edf7'],
   ['themeInputBorder', '--input-border', '#3a4453'],
+  ['themePlaceholderText', '--placeholder-text', '#7c8088'],
 
   ['themeChipBg', '--chip-bg', '#1b1b1b'],
   ['themeChipText', '--chip-text', '#dddddd'],
@@ -161,6 +167,10 @@ const COLOR_INPUT_BINDINGS = [
   ['themeFontPreviewBg', '--font-preview-bg', '#0f151f'],
   ['themeFontPreviewText', '--font-preview-text', '#e8eef7'],
   ['themeFontGlyphFill', '--font-glyph-fill', '#ffffff'],
+  ['themeDiffDelBg', '--diff-del-bg', '#3a1a1a'],
+  ['themeDiffDelText', '--diff-del-text', '#ff9898'],
+  ['themeDiffAddBg', '--diff-add-bg', '#18361e'],
+  ['themeDiffAddText', '--diff-add-text', '#9affa0'],
 ];
 
 const ALPHA_COLOR_BINDINGS = [

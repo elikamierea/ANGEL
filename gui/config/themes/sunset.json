@@ -12,7 +12,6 @@
                     "--sidebar-item-active-border":  "#F5C26B",
                     "--sidebar-item-active-bg":  "#6B2E1A",
                     "--sidebar-meta-text":  "#F2D27A",
-                    "--agent-sidebar-inactive-text":  "#F2D27A",
                     "--right-panel-bg":  "#140A08",
                     "--panel-card-bg":  "#3A2218",
                     "--panel-card-border":  "#7A4A2E",
@@ -20,6 +19,7 @@
                     "--input-bg":  "#3A2218",
                     "--input-text":  "#FFF3D4",
                     "--input-border":  "#C14A1C",
+                    "--placeholder-text":  "#dd8b36",
                     "--chip-bg":  "#3A2218",
                     "--chip-text":  "#F5C26B",
                     "--chip-border":  "#7A4A2E",
@@ -50,8 +50,8 @@
                     "--agent-chat-bubble-agent-border":  "#7A4A2E",
                     "--agent-chat-bubble-user-bg":  "#6B2E1A",
                     "--agent-chat-bubble-user-border":  "#C14A1C",
-                    "--agent-chat-bubble-system-bg":  "#7A4A2E",
-                    "--agent-chat-bubble-system-border":  "#E87A2B",
+                    "--agent-chat-bubble-system-bg":  "#492a18",
+                    "--agent-chat-bubble-system-border":  "#bc6324",
                     "--agent-chat-bubble-system-text":  "#FFF3D4",
                     "--menu-separator":  "#7A4A2E",
                     "--file-tree-hover-bg":  "rgba(245, 194, 107, 0.14)",
@@ -78,7 +78,11 @@
                     "--font-preview-text":  "#FFF3D4",
                     "--font-glyph-fill":  "#FFF3D4",
                     "--graph-grid-opacity":  "0.18",
-                    "--graph-node-base-opacity":  "1"
+                    "--graph-node-base-opacity":  "1",
+                    "--diff-del-bg":  "#3c1412",
+                    "--diff-del-text":  "#ff9898",
+                    "--diff-add-bg":  "#1a3016",
+                    "--diff-add-text":  "#9affa0"
                 },
     "nodeFillPalette":  [
                             "#3a1c12",
@@ -115,7 +119,6 @@
                               "#a67574",
                               "#a06f78",
                               "#ae7b70"
-                          ],
-    "--help-link-text":  "#8dc8ff"
+                          ]
 }
 

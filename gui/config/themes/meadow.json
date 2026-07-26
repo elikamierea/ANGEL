@@ -12,7 +12,6 @@
                     "--sidebar-item-active-border":  "#4a8a2a",
                     "--sidebar-item-active-bg":  "#c2e0a2",
                     "--sidebar-meta-text":  "#4a6838",
-                    "--agent-sidebar-inactive-text":  "#4a6838",
                     "--right-panel-bg":  "#d8ecc4",
                     "--panel-card-bg":  "#e8f4d6",
                     "--panel-card-border":  "#5a8c38",
@@ -20,6 +19,7 @@
                     "--input-bg":  "#fcfff8",
                     "--input-text":  "#1f3a1a",
                     "--input-border":  "#5a8c38",
+                    "--placeholder-text":  "#7edd48",
                     "--chip-bg":  "#e8f4d6",
                     "--chip-text":  "#305a18",
                     "--chip-border":  "#5a8c38",
@@ -79,7 +79,11 @@
                     "--font-glyph-fill":  "#1f3a1a",
                     "--graph-grid-opacity":  "0.18",
                     "--graph-node-base-opacity":  "1",
-                    "--help-link-text":  "#1a0dab"
+                    "--help-link-text":  "#1a0dab",
+                    "--diff-del-bg":  "#edddd7",
+                    "--diff-del-text":  "#861414",
+                    "--diff-add-bg":  "#d3ecd6",
+                    "--diff-add-text":  "#145a20"
                 },
     "nodeFillPalette":  [
                             "#e8f4d6",
@@ -116,7 +120,6 @@
                               "#487820",
                               "#489838",
                               "#3a7898"
-                          ],
-    "--help-link-text":  "#8dc8ff"
+                          ]
 }
 

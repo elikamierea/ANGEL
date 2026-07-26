@@ -21,6 +21,7 @@ export function createProjectIOController(deps) {
     getFileNameFromPath,
     refreshProjectFileTree,
     loadAgentMemoriesForActiveProject,
+    isCliBackendActive,
     applyBackendProject,
     supportsDirectoryPicker,
     electronAPI,
@@ -239,6 +240,10 @@ export function createProjectIOController(deps) {
       });
       // Switch the editor over to the freshly written copy and mark it clean.
       await applyBackendProject(result);
+      // applyProjectData reads the name from the serialized payload, which still
+      // carries the old folder name. Overwrite it with the actual new folder name.
+      const newFolderName = getFileNameFromPath(result.rootPath);
+      if (newFolderName) state.projectName = newFolderName;
       for (const n of nodes) n.dirty = false;
       updateTopbar();
 
@@ -506,7 +511,7 @@ export function createProjectIOController(deps) {
 
       collapsedFileTreePaths.clear();
       await refreshProjectFileTree(false);
-      await loadAgentMemoriesForActiveProject({ reason: 'new-project' });
+      if (!isCliBackendActive()) await loadAgentMemoriesForActiveProject({ reason: 'new-project' });
 
       setStatus(`New project initialized in folder: ${projectDirHandle.name || sanitized}`);
     } catch (error) {
@@ -586,7 +591,7 @@ export function createProjectIOController(deps) {
     state.angelFilePath = '';
     state.projectRootPath = '';
 
-    await loadAgentMemoriesForActiveProject({ reason: 'open-file' });
+    if (!isCliBackendActive()) await loadAgentMemoriesForActiveProject({ reason: 'open-file' });
 
     setStatus(`Opened project: ${file.name || 'angel.json'}`);
   }
@@ -608,7 +613,7 @@ export function createProjectIOController(deps) {
     state.currentProjectDirHandle = dirHandle;
     collapsedFileTreePaths.clear();
     await refreshProjectFileTree(false);
-    await loadAgentMemoriesForActiveProject({ reason: 'open-directory' });
+    if (!isCliBackendActive()) await loadAgentMemoriesForActiveProject({ reason: 'open-directory' });
 
     setStatus(`Opened folder: ${dirHandle.name}`);
     return true;

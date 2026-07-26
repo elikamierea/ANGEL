@@ -134,6 +134,7 @@ const themePanelItemBorder = document.getElementById('theme-panel-item-border');
 const themeInputBg = document.getElementById('theme-input-bg');
 const themeInputText = document.getElementById('theme-input-text');
 const themeInputBorder = document.getElementById('theme-input-border');
+const themePlaceholderText = document.getElementById('theme-placeholder-text');
 const themeChipBg = document.getElementById('theme-chip-bg');
 const themeChipText = document.getElementById('theme-chip-text');
 const themeChipBorder = document.getElementById('theme-chip-border');
@@ -165,6 +166,11 @@ const themeSpritePreviewError = document.getElementById('theme-sprite-preview-er
 const themeFontPreviewBg = document.getElementById('theme-font-preview-bg');
 const themeFontPreviewText = document.getElementById('theme-font-preview-text');
 const themeFontGlyphFill = document.getElementById('theme-font-glyph-fill');
+const themeDiffDelBg = document.getElementById('theme-diff-del-bg');
+const themeDiffDelText = document.getElementById('theme-diff-del-text');
+const themeDiffAddBg = document.getElementById('theme-diff-add-bg');
+const themeDiffAddText = document.getElementById('theme-diff-add-text');
+
 const themeFileTreeHoverBg = document.getElementById('theme-file-tree-hover-bg');
 const themeModalBackdropBg = document.getElementById('theme-modal-backdrop-bg');
 const themeGraphDragPreviewStroke = document.getElementById('theme-graph-drag-preview-stroke');
@@ -2582,6 +2588,12 @@ const cliAgentRuntime = createCliAgentRuntime({
       renderAgentTimeline({ forceScrollBottom: true });
     } catch (_) { /* best effort */ }
   },
+  toolReadByParams,
+  runProjectCommand: async (command) => electronAPI.runProjectCommand({
+    rootPath: state.projectRootPath || '',
+    command: String(command),
+    timeoutMs: 8000,
+  }),
   t,
 });
 
@@ -2796,6 +2808,7 @@ const themeSettingsController = createThemeSettingsController({
     themeInputBg,
     themeInputText,
     themeInputBorder,
+    themePlaceholderText,
     themeChipBg,
     themeChipText,
     themeChipBorder,
@@ -2827,6 +2840,10 @@ const themeSettingsController = createThemeSettingsController({
     themeFontPreviewBg,
     themeFontPreviewText,
     themeFontGlyphFill,
+    themeDiffDelBg,
+    themeDiffDelText,
+    themeDiffAddBg,
+    themeDiffAddText,
     themeFileTreeHoverBg,
     themeModalBackdropBg,
     themeGraphDragPreviewStroke,
@@ -3288,6 +3305,46 @@ function renderSpritePreview() {
   return appShellUI.renderSpritePreview();
 }
 
+function findReferencesByPaths(filePaths) {
+  const normalized = new Set(filePaths.map((p) => String(p).replace(/\\/g, '/').toLowerCase()));
+  const hits = [];
+  for (const node of nodes) {
+    for (const [layerId, layerData] of Object.entries(node.layerContent || {})) {
+      for (const binding of (Array.isArray(layerData.resourceBindings) ? layerData.resourceBindings : [])) {
+        const bp = String(binding?.path || '').replace(/\\/g, '/');
+        if (bp && normalized.has(bp.toLowerCase())) {
+          hits.push({ nodeName: node.name, layerId, oldPath: bp });
+        }
+      }
+    }
+  }
+  return hits;
+}
+
+function applyReferencePathUpdates(pathMap) {
+  // pathMap: Map<oldPath, newPath> — paths normalized to forward slashes
+  const norm = new Map();
+  for (const [oldP, newP] of pathMap) norm.set(String(oldP).replace(/\\/g, '/').toLowerCase(), String(newP).replace(/\\/g, '/'));
+  pushHistory();
+  let anyChanged = false;
+  for (const node of nodes) {
+    let nodeChanged = false;
+    for (const layerData of Object.values(node.layerContent || {})) {
+      if (!Array.isArray(layerData.resourceBindings)) continue;
+      let changed = false;
+      const updated = layerData.resourceBindings.map((b) => {
+        const bp = String(b?.path || '').replace(/\\/g, '/');
+        const newPath = norm.get(bp.toLowerCase());
+        if (newPath !== undefined) { changed = true; return { ...b, path: newPath }; }
+        return b;
+      });
+      if (changed) { layerData.resourceBindings = updated; nodeChanged = true; }
+    }
+    if (nodeChanged) { node.dirty = true; node.revision = (node.revision || 0) + 1; anyChanged = true; }
+  }
+  if (anyChanged) { updateTopbar(); render(); }
+}
+
 // File-tree module owns sidebar tree render + refresh lifecycle.
 const fileTreeUI = createFileTreeUI({
   state,
@@ -3300,6 +3357,8 @@ const fileTreeUI = createFileTreeUI({
   rebuildSidebarHook: () => rebuildSidebar(),
   setStatus,
   t,
+  findReferencesByPaths,
+  applyReferencePathUpdates,
 });
 _seedCollapsedFileTreeImpl = fileTreeUI.seedCollapsedFileTree;
 _resetProjectFolderAssociationImpl = fileTreeUI.resetProjectFolderAssociation;
@@ -3394,7 +3453,10 @@ async function applyBackendProject(result) {
     }
     rebuildSidebar();
     try {
-      await loadAgentMemoriesForActiveProject({ reason: 'backend-project' });
+      await loadAgentMemoriesForActiveProject({
+        reason: 'backend-project',
+        sessionOnly: isCliBackendActive(),
+      });
     } catch (memoryError) {
       console.error('Agent memory preload failed', memoryError);
       setStatus(`Project loaded, but agent memories failed: ${memoryError?.message || 'unknown error'}`);
@@ -3431,6 +3493,7 @@ const projectIOController = createProjectIOController({
   getFileNameFromPath,
   refreshProjectFileTree,
   loadAgentMemoriesForActiveProject,
+  isCliBackendActive,
   applyBackendProject,
   supportsDirectoryPicker,
   electronAPI,
@@ -3992,6 +4055,7 @@ const assetModalBindings = createAssetModalBindings({
   t,
   dom: {
     spriteFilesInput,
+    spritePathInput,
     spriteNameInput,
     spriteNote,
     spritePivotXInput,
@@ -4006,6 +4070,7 @@ const assetModalBindings = createAssetModalBindings({
     fontSourceSystemRadio,
     fontSourceFileRadio,
     fontFileInput,
+    fontPathInput,
     fontNameInput,
     fontSystemSelect,
     fontNote,
@@ -4023,6 +4088,7 @@ const assetModalBindings = createAssetModalBindings({
     audioCancel,
     audioCreate,
     audioFileInput,
+    audioPathInput,
     audioNameInput,
     audioFormatInput,
     audioBitrateRow,
@@ -4037,6 +4103,10 @@ const assetModalBindings = createAssetModalBindings({
     runTestCancel,
     runTestConfirm,
     runTestModal,
+  },
+  normalizeToolRelativePath,
+  fileExistsAtRelPath: async (relPath) => {
+    try { await toolReadByParams({ path: relPath, limit: 1 }); return true; } catch { return false; }
   },
   spriteBuildState,
   loadSpriteFramesFromInput,
