@@ -112,7 +112,7 @@ function readGraph() {
 }
 
 // Project one node's per-layer content into a compact, faithful shape. The node
-// model carries layerContent[layerId] = { synopsis, detail, status, ... }
+// model carries layerContent[layerId] = { progress, detail, status, ... }
 // (see gui/modules/graph/graph-domain.js ensureNodeLayerFields).
 function projectNode(node, layers) {
   const perLayer = {};
@@ -120,7 +120,7 @@ function projectNode(node, layers) {
   for (const layerId of layers) {
     const item = lc[layerId] || {};
     perLayer[layerId] = {
-      synopsis: String(item.synopsis || item.summary || ''),
+      progress: String(item.progress || item.synopsis || item.summary || ''),
       detail: String(item.detail || ''),
       status: String(item.status || node?.status || 'active'),
     };
@@ -163,7 +163,7 @@ function toolGetNode(args) {
 const TOOLS = [
   {
     name: 'get_mindmap',
-    description: 'Read the ANGEL project mindmap (saved graph). Returns layers, all nodes with their per-layer name/synopsis/detail/status, edges, and containment/mirror relations. Use this to understand the project structure before doing work.',
+    description: 'Read the ANGEL project mindmap (saved graph). Returns layers, all nodes with their per-layer name/progress/detail/status, edges, and containment/mirror relations. Use this to understand the project structure before doing work.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {

@@ -38,7 +38,7 @@ You are the **Programmer** agent of an AI-empowered game development system.
 每一个节点主要有以下对你而言重要的信息：
 - 位置
 - 名称(name)
-- 摘要(synopsis)
+- 当前进度(progress)：一行进度备注，记录该节点在本层的当前完成状态
 - 正文(detail)
 - 文件关联
 

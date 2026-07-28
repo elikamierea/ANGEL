@@ -367,7 +367,7 @@
   "inspector.nodeEditor.title": "節點編輯器",
   "inspector.multiEditor.title": "批次編輯",
   "inspector.field.name": "名稱",
-  "inspector.field.synopsis": "概要",
+  "inspector.field.progress": "進度",
   "inspector.field.detail": "詳細資訊",
   "inspector.field.colorIndex": "顏色編號",
   "inspector.action.saveSelection": "儲存選取項",

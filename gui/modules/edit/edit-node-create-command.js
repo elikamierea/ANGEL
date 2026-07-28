@@ -55,8 +55,8 @@ export function createEditNodeCreateCommand(deps) {
       : [];
   }
 
-  function buildLayerContentSeed(synopsis, detail, status) {
-    return Object.fromEntries(getAllLayerIds().map((lid) => [lid, { synopsis, detail, status, resourceBindings: [] }]));
+  function buildLayerContentSeed(progress, detail, status) {
+    return Object.fromEntries(getAllLayerIds().map((lid) => [lid, { progress, detail, status, resourceBindings: [] }]));
   }
 
   function createNodeAtPositionByParams(params = {}) {
@@ -70,7 +70,7 @@ export function createEditNodeCreateCommand(deps) {
     }
 
     const layerId = params.layer ? normalizeLayerId(params.layer) : state.activeLayer;
-    const synopsis = String(params.synopsis || '').trim();
+    const progress = String(params.progress || '').trim();
     const detail = String(params.detail || '').trim();
     const status = String(params.status || 'active').trim() || 'active';
     const colorIndexInput = params.colorIndex != null ? params.colorIndex : params.color;
@@ -83,11 +83,11 @@ export function createEditNodeCreateCommand(deps) {
     const node = {
       id,
       name,
-      synopsis,
+      progress,
       detail,
       status,
       createdLayer: layerId,
-      layerContent: buildLayerContentSeed(synopsis, detail, status),
+      layerContent: buildLayerContentSeed(progress, detail, status),
       tags: [],
       blocked: false,
       dirty: true,

@@ -211,7 +211,7 @@ export function createInspectorUI(deps) {
 
     const layerData = getNodeLayerContent(selected);
     fieldName.value = selected.name;
-    fieldSummary.value = layerData.synopsis;
+    fieldSummary.value = layerData.progress;
     fieldDetail.value = layerData.detail;
     if (fieldStatus) fieldStatus.value = layerData.status;
     if (fieldColorIndex) {
@@ -512,7 +512,7 @@ export function createInspectorUI(deps) {
     const srcLayerData = src ? getNodeLayerContent(src) : null;
 
     const nextName = mirrorNode ? (src?.name || selected.name) : (fieldName.value.trim() || selected.name);
-    const nextSynopsis = mirrorNode ? (srcLayerData?.synopsis || srcLayerData?.summary || '') : fieldSummary.value.trim();
+    const nextProgress = mirrorNode ? (srcLayerData?.progress || srcLayerData?.synopsis || srcLayerData?.summary || '') : fieldSummary.value.trim();
     const nextDetail = fieldDetail.value.trim();
     const nextStatus = fieldStatus ? fieldStatus.value : (currentLayerData.status || 'active');
     const nextColorIndex = mirrorNode
@@ -531,7 +531,7 @@ export function createInspectorUI(deps) {
 
     const changed =
       selected.name !== nextName ||
-      (currentLayerData.synopsis || '') !== nextSynopsis ||
+      (currentLayerData.progress || '') !== nextProgress ||
       (currentLayerData.detail || '') !== nextDetail ||
       (currentLayerData.status || '') !== nextStatus ||
       normalizeColorIndex(selected.colorIndex) !== nextColorIndex;
@@ -540,10 +540,10 @@ export function createInspectorUI(deps) {
     pushHistory();
 
     selected.name = nextName;
-    currentLayerData.synopsis = nextSynopsis;
+    currentLayerData.progress = nextProgress;
     currentLayerData.detail = nextDetail;
     currentLayerData.status = nextStatus;
-    selected.synopsis = currentLayerData.synopsis;
+    selected.progress = currentLayerData.progress;
     selected.detail = currentLayerData.detail;
     selected.status = currentLayerData.status;
     selected.colorIndex = nextColorIndex;

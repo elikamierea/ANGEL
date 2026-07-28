@@ -367,7 +367,7 @@
   "inspector.nodeEditor.title": "노드 편집기",
   "inspector.multiEditor.title": "일괄 편집",
   "inspector.field.name": "이름",
-  "inspector.field.synopsis": "개요",
+  "inspector.field.progress": "진행도",
   "inspector.field.detail": "세부 정보",
   "inspector.field.colorIndex": "색상 인덱스",
   "inspector.action.saveSelection": "선택 항목 저장",

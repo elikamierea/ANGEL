@@ -370,7 +370,7 @@
   "inspector.nodeEditor.title": "节点编辑器",
   "inspector.multiEditor.title": "批量编辑",
   "inspector.field.name": "名称",
-  "inspector.field.synopsis": "概要",
+  "inspector.field.progress": "进度",
   "inspector.field.detail": "详情",
   "inspector.field.colorIndex": "颜色编号",
   "inspector.action.saveSelection": "保存选中项",

@@ -41,8 +41,8 @@ export function createGraphHelpers({ nodes }) {
       if (!isMirrorNode(n)) continue;
       const src = byId2.get(n.mirrorOfId);
       if (!src) continue;
-      if ((n.synopsis || '') !== (src.synopsis || '')) {
-        n.synopsis = src.synopsis || '';
+      if ((n.progress || '') !== (src.progress || '')) {
+        n.progress = src.progress || '';
         changed = true;
       }
     }

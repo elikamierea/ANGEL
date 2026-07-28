@@ -25,7 +25,7 @@ ANGEL GUI 裡的 Graph，不只是一個「隨手畫框和連線」的白板。
 節點本身可以承載文字資訊，例如：
 
 - `name`
-- `synopsis`
+- `progress`
 - `detail`
 - `status`
 
@@ -165,7 +165,7 @@ Auto Layout 使用 ELK 來自動整理節點配置。
 ### 節點常用欄位
 
 - `name`
-- `synopsis`
+- `progress`
 - `detail`
 - `status`
 - `color index`

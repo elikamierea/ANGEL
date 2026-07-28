@@ -367,7 +367,7 @@
   "inspector.nodeEditor.title": "ノードエディター",
   "inspector.multiEditor.title": "一括編集",
   "inspector.field.name": "名前",
-  "inspector.field.synopsis": "概要",
+  "inspector.field.progress": "進捗",
   "inspector.field.detail": "詳細",
   "inspector.field.colorIndex": "カラーインデックス",
   "inspector.action.saveSelection": "選択項目を保存",

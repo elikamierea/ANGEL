@@ -25,7 +25,7 @@ ANGEL GUI の Graph は、気軽に四角と線を描くだけのホワイトボ
 ノード自体は次のようなテキスト情報を持てます：
 
 - `name`
-- `synopsis`
+- `progress`
 - `detail`
 - `status`
 
@@ -165,7 +165,7 @@ Auto Layout は ELK を使ってノードの配置を自動的に整理します
 ### ノードのよく使うフィールド
 
 - `name`
-- `synopsis`
+- `progress`
 - `detail`
 - `status`
 - `color index`

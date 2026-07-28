@@ -32,8 +32,8 @@ export function createEditMirrorUpdateCommands(deps) {
     getAllLayerIds,
   } = deps;
 
-  function buildLayerContentSeed(synopsis, detail, status) {
-    return Object.fromEntries(getAllLayerIds().map((lid) => [lid, { synopsis, detail, status, resourceBindings: [] }]));
+  function buildLayerContentSeed(progress, detail, status) {
+    return Object.fromEntries(getAllLayerIds().map((lid) => [lid, { progress, detail, status, resourceBindings: [] }]));
   }
 
   function normalizeMirrorTopLeft(params = {}) {
@@ -68,9 +68,9 @@ export function createEditMirrorUpdateCommands(deps) {
     if (!isNodeNameAvailable(name)) throw new Error(`duplicate node name: ${name}`);
 
     const sourceLayerData = getNodeLayerContent(source, layerId);
-    const synopsis = Object.prototype.hasOwnProperty.call(params, 'synopsis')
-      ? String(params.synopsis || '').trim()
-      : String(sourceLayerData.synopsis || sourceLayerData.summary || '');
+    const progress = Object.prototype.hasOwnProperty.call(params, 'progress')
+      ? String(params.progress || '').trim()
+      : String(sourceLayerData.progress || sourceLayerData.synopsis || sourceLayerData.summary || '');
     const detail = Object.prototype.hasOwnProperty.call(params, 'detail')
       ? String(params.detail || '').trim()
       : MIRROR_DEFAULT_DETAIL;
@@ -89,11 +89,11 @@ export function createEditMirrorUpdateCommands(deps) {
     const mirrorNode = {
       id,
       name,
-      synopsis,
+      progress,
       detail,
       status,
       createdLayer: layerId,
-      layerContent: buildLayerContentSeed(synopsis, detail, status),
+      layerContent: buildLayerContentSeed(progress, detail, status),
       tags: ['mirror'],
       blocked: false,
       dirty: true,
@@ -185,9 +185,9 @@ export function createEditMirrorUpdateCommands(deps) {
 
     const layerId = params.layer ? normalizeLayerId(params.layer) : state.activeLayer;
     const layerData = getNodeLayerContent(node, layerId);
-    const synopsis = Object.prototype.hasOwnProperty.call(params, 'synopsis')
-      ? String(params.synopsis || '').trim()
-      : String(layerData.synopsis || '');
+    const progress = Object.prototype.hasOwnProperty.call(params, 'progress')
+      ? String(params.progress || '').trim()
+      : String(layerData.progress || '');
     const detail = Object.prototype.hasOwnProperty.call(params, 'detail')
       ? String(params.detail || '').trim()
       : String(layerData.detail || '');
@@ -215,10 +215,10 @@ export function createEditMirrorUpdateCommands(deps) {
     // Bindings are per-layer: write to the requested/active layer only.
     if (shouldUpdateBindings) layerData.resourceBindings = resourceBindings;
 
-    layerData.synopsis = synopsis;
+    layerData.progress = progress;
     layerData.detail = detail;
     layerData.status = status;
-    node.synopsis = synopsis;
+    node.progress = progress;
     node.detail = detail;
     node.status = status;
     node.dirty = true;

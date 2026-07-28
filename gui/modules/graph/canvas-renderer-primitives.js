@@ -16,6 +16,7 @@ export function createCanvasRendererPrimitives(deps) {
     mixHexColors,
     clamp01,
     cssVar,
+    getNodeLayerContent,
   } = deps;
 
   function getNodeScreenAreaPx2(node) {
@@ -261,10 +262,11 @@ export function createCanvasRendererPrimitives(deps) {
     if (lod === 'detail') {
       ctx.fillStyle = palettePick(graphPalette.nodeText, 0, '#e8eef7');
       ctx.font = `${Math.max(10, viewSettings.node_font_px - 1)}px ${cssVar('--app-font-family', 'Arial, sans-serif')}`;
-      const synopsis = (node.synopsis || node.summary || '').trim();
-      if (synopsis) {
+      const layerContent = getNodeLayerContent ? getNodeLayerContent(node) : null;
+      const progress = (layerContent?.progress || node.progress || node.synopsis || node.summary || '').trim();
+      if (progress) {
         const maxW = Math.max(0, w - 20);
-        const words = synopsis.split(/\s+/).filter(Boolean);
+        const words = progress.split(/\s+/).filter(Boolean);
         let line = '';
         let y = p.y + 38;
         let lines = 0;

@@ -115,13 +115,13 @@ export function createAgentToolContext(deps) {
     const out = [];
     const meta = createVisibleTreeWalker(layerId, rootName, (node, depth, lid, parentName) => {
       const content = getNodeLayerContent(node, lid);
-      const synopsis = String(content?.synopsis || content?.summary || node.synopsis || node.summary || '').trim();
+      const progress = String(content?.progress || content?.synopsis || content?.summary || node.progress || node.synopsis || node.summary || '').trim();
       const fa = String(parentName || '').trim();
       out.push({
         name: String(node.name || ''),
         depth,
         ...(fa ? { fa } : {}),
-        ...(synopsis ? { synopsis } : {}),
+        ...(progress ? { progress } : {}),
       });
     });
 
@@ -149,13 +149,13 @@ export function createAgentToolContext(deps) {
       const content = getNodeLayerContent(node, lid);
       const detail = String(content?.detail || node.detail || '').trim();
       if (detail) return;
-      const synopsis = String(content?.synopsis || content?.summary || node.synopsis || node.summary || '').trim();
+      const progress = String(content?.progress || content?.synopsis || content?.summary || node.progress || node.synopsis || node.summary || '').trim();
       const fa = String(parentName || '').trim();
       out.push({
         name: String(node.name || ''),
         depth,
         ...(fa ? { fa } : {}),
-        ...(synopsis ? { synopsis } : {}),
+        ...(progress ? { progress } : {}),
       });
     });
 
@@ -230,7 +230,7 @@ export function createAgentToolContext(deps) {
           } : {}),
           [endpointKey]: relatedNode ? {
             name: String(relatedNode.name || ''),
-            synopsis: String(relatedLayer?.synopsis || relatedLayer?.summary || relatedNode.synopsis || relatedNode.summary || ''),
+            progress: String(relatedLayer?.progress || relatedLayer?.synopsis || relatedLayer?.summary || relatedNode.progress || relatedNode.synopsis || relatedNode.summary || ''),
           } : null,
         };
       });
@@ -242,7 +242,7 @@ export function createAgentToolContext(deps) {
       node: {
         name: String(node.name || ''),
         createdLayer: `L${getCreatedLayer(node.createdLayer)}`,
-        synopsis: String(content?.synopsis || content?.summary || node.synopsis || node.summary || ''),
+        progress: String(content?.progress || content?.synopsis || content?.summary || node.progress || node.synopsis || node.summary || ''),
         detail: String(content?.detail || node.detail || ''),
         status: String(content?.status || node.status || 'active'),
         lrtb: buildNodeLrtb(node),
@@ -316,7 +316,7 @@ export function createAgentToolContext(deps) {
   }
 
   // Regex search over visible nodes within one layer, optionally scoped to a
-  // compound node subtree (root). Searches name/synopsis/detail/status using
+  // compound node subtree (root). Searches name/progress/detail/status using
   // smart-case (case-insensitive unless the pattern contains an uppercase
   // letter; the `-i` flag overrides). Returns capped, snippet-bearing matches.
   function grepVisibleNodes(params = {}) {
@@ -343,7 +343,7 @@ export function createAgentToolContext(deps) {
       throw new Error(`invalid regex pattern: ${error?.message || 'parse error'}`);
     }
 
-    const FIELDS = ['name', 'synopsis', 'detail', 'status'];
+    const FIELDS = ['name', 'progress', 'detail', 'status'];
     const matches = [];
     let total = 0;
 
@@ -351,7 +351,7 @@ export function createAgentToolContext(deps) {
       const content = getNodeLayerContent(node, lid);
       const values = {
         name: String(node.name || ''),
-        synopsis: String(content?.synopsis || content?.summary || node.synopsis || node.summary || ''),
+        progress: String(content?.progress || content?.synopsis || content?.summary || node.progress || node.synopsis || node.summary || ''),
         detail: String(content?.detail || node.detail || ''),
         status: String(content?.status || node.status || ''),
       };

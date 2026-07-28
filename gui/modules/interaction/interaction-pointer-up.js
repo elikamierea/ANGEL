@@ -38,8 +38,8 @@ export function createInteractionPointerUp(deps) {
     render,
   } = deps;
 
-  function buildLayerContentSeed(synopsis, detail, status) {
-    return Object.fromEntries(getAllLayerIds().map((lid) => [lid, { synopsis, detail, status, resourceBindings: [] }]));
+  function buildLayerContentSeed(progress, detail, status) {
+    return Object.fromEntries(getAllLayerIds().map((lid) => [lid, { progress, detail, status, resourceBindings: [] }]));
   }
 
   function handlePointerUp(e) {
@@ -121,7 +121,7 @@ export function createInteractionPointerUp(deps) {
         const node = {
           id,
           name: `Node ${id}`,
-          synopsis: '',
+          progress: '',
           detail: '',
           status: 'active',
           createdLayer: state.activeLayer,
@@ -325,15 +325,15 @@ export function createInteractionPointerUp(deps) {
         } else {
           pushHistory();
           const sourceLayerData = getNodeLayerContent(source);
-          const sourceSynopsis = sourceLayerData.synopsis || sourceLayerData.summary || '';
+          const sourceProgress = sourceLayerData.progress || sourceLayerData.synopsis || sourceLayerData.summary || '';
           const mirrorNode = {
             id,
             name: nextAvailableMirrorName(source.name),
-            synopsis: sourceSynopsis,
+            progress: sourceProgress,
             detail: MIRROR_DEFAULT_DETAIL,
             status: sourceLayerData.status || 'active',
             createdLayer: state.activeLayer,
-            layerContent: buildLayerContentSeed(sourceSynopsis, MIRROR_DEFAULT_DETAIL, sourceLayerData.status || 'active'),
+            layerContent: buildLayerContentSeed(sourceProgress, MIRROR_DEFAULT_DETAIL, sourceLayerData.status || 'active'),
             tags: ['mirror'],
             blocked: false,
             dirty: true,

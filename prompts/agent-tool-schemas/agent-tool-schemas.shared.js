@@ -2,7 +2,7 @@ export const SHARED_AGENT_TOOL_SCHEMAS = [
   {
     type: 'function',
     name: 'list_node',
-    description: 'Return visible nodes in DFS order for the requested layer. layer is required. Optionally provide root to list only that visible node and its descendants as a subtree. Each returned item includes name, depth, fa (the parent node name; omitted for top-level roots at depth 0), and synopsis when non-empty.',
+    description: 'Return visible nodes in DFS order for the requested layer. layer is required. Optionally provide root to list only that visible node and its descendants as a subtree. Each returned item includes name, depth, fa (the parent node name; omitted for top-level roots at depth 0), and progress when non-empty.',
     parameters: {
       type: 'object',
       properties: {
@@ -16,7 +16,7 @@ export const SHARED_AGENT_TOOL_SCHEMAS = [
   {
     type: 'function',
     name: 'list_empty_node',
-    description: 'Return visible nodes in DFS order for the requested layer, but only include nodes whose detail is empty. layer is required. Optionally provide root to limit the search to that visible node and its descendants as a subtree. Each returned item includes name, depth, fa (the parent node name; omitted for top-level roots at depth 0), and synopsis when non-empty.',
+    description: 'Return visible nodes in DFS order for the requested layer, but only include nodes whose detail is empty. layer is required. Optionally provide root to limit the search to that visible node and its descendants as a subtree. Each returned item includes name, depth, fa (the parent node name; omitted for top-level roots at depth 0), and progress when non-empty.',
     parameters: {
       type: 'object',
       properties: {
@@ -30,7 +30,7 @@ export const SHARED_AGENT_TOOL_SCHEMAS = [
   {
     type: 'function',
     name: 'get_node_detail',
-    description: 'Given node name (and optional layer), return node detail and connected edges. Each edge includes its id for precise follow-up update/delete calls, and uses fromNode/toNode to indicate the other endpoint direction relative to the queried node, plus node synopsis + lrtb (left/right/top/bottom). resourceBindings reflect the queried layer only (references are per-layer). If layer is omitted, search all layers (L0-L3).',
+    description: 'Given node name (and optional layer), return node detail and connected edges. Each edge includes its id for precise follow-up update/delete calls, and uses fromNode/toNode to indicate the other endpoint direction relative to the queried node, plus node progress + lrtb (left/right/top/bottom). resourceBindings reflect the queried layer only (references are per-layer). If layer is omitted, search all layers (L0-L3).',
     parameters: {
       type: 'object',
       properties: {
@@ -44,7 +44,7 @@ export const SHARED_AGENT_TOOL_SCHEMAS = [
   {
     type: 'function',
     name: 'grep_node',
-    description: 'Regex search over visible nodes in one layer. layer is required. Optionally pass root (a compound node name) to restrict the search to that node and its descendants; omit root to search the whole layer. Matches name/synopsis/detail/status using smart-case (case-insensitive unless the pattern has an uppercase letter; -i overrides). Returns capped matches, each with the node name, depth, and per-field snippets, plus total/returned/truncated. Prefer this over list_node when looking for nodes by content.',
+    description: 'Regex search over visible nodes in one layer. layer is required. Optionally pass root (a compound node name) to restrict the search to that node and its descendants; omit root to search the whole layer. Matches name/progress/detail/status using smart-case (case-insensitive unless the pattern has an uppercase letter; -i overrides). Returns capped matches, each with the node name, depth, and per-field snippets, plus total/returned/truncated. Prefer this over list_node when looking for nodes by content.',
     parameters: {
       type: 'object',
       properties: {
@@ -67,7 +67,7 @@ export const SHARED_AGENT_TOOL_SCHEMAS = [
       properties: {
         name: { type: 'string' },
         layer: { type: 'string' },
-        synopsis: { type: 'string' },
+        progress: { type: 'string' },
         detail: { type: 'string' },
         status: { type: 'string' },
         colorIndex: { type: 'number' },
@@ -158,7 +158,7 @@ export const SHARED_AGENT_TOOL_SCHEMAS = [
           additionalProperties: false,
         },
         name: { type: 'string' },
-        synopsis: { type: 'string' },
+        progress: { type: 'string' },
         detail: { type: 'string' },
         status: { type: 'string' },
         colorIndex: { type: 'number' },
@@ -455,7 +455,7 @@ export const SHARED_AGENT_TOOL_SCHEMAS = [
         targetName: { type: 'string' },
         layer: { type: 'string' },
         name: { type: 'string' },
-        synopsis: { type: 'string' },
+        progress: { type: 'string' },
         detail: { type: 'string' },
         status: { type: 'string' },
         colorIndex: { type: 'number' },

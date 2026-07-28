@@ -25,7 +25,7 @@ ANGEL GUI 의 Graph 는 그저 박스와 선을 자유롭게 그리는 화이트
 노드 자체는 다음과 같은 텍스트 정보를 담을 수 있습니다：
 
 - `name`
-- `synopsis`
+- `progress`
 - `detail`
 - `status`
 
@@ -165,7 +165,7 @@ Auto Layout 은 ELK 를 사용해 노드 배치를 자동으로 정리합니다.
 ### 노드 자주 쓰는 필드
 
 - `name`
-- `synopsis`
+- `progress`
 - `detail`
 - `status`
 - `color index`

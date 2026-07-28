@@ -2154,7 +2154,7 @@ const MCP_GRAPH_TOOLS = new Set([
 ]);
 // NOTE: get_mindmap (a whole-graph dump) is intentionally NOT exposed as an MCP
 // tool. The graph-reading design is overview-first-then-detail to avoid context
-// bloat: agents use list_node (compact per-layer hierarchy + synopsis) → grep_node
+// bloat: agents use list_node (compact per-layer hierarchy + progress) → grep_node
 // → get_node_detail, the SAME incremental pattern the HTTP line uses. The live
 // overview builder (buildLiveMindmapOverview) is kept only for the deferred Codex
 // non-bypass prompt-injection idea, not as a callable tool.
@@ -2186,7 +2186,7 @@ function buildLiveMindmapOverview() {
     for (const lid of layers) {
       const item = lc[lid] || {};
       perLayer[lid] = {
-        synopsis: String(item.synopsis || item.summary || ''),
+        progress: String(item.progress || item.synopsis || item.summary || ''),
         detail: String(item.detail || ''),
         status: String(item.status || n?.status || 'active'),
       };
@@ -3153,6 +3153,7 @@ const canvasRendererPrimitives = createCanvasRendererPrimitives({
   mixHexColors,
   clamp01,
   cssVar,
+  getNodeLayerContent,
 });
 _getNodeScreenAreaPx2Impl = canvasRendererPrimitives.getNodeScreenAreaPx2;
 _getNodeLodLevelImpl = canvasRendererPrimitives.getNodeLodLevel;

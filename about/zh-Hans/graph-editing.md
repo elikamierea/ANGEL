@@ -25,7 +25,7 @@ ANGEL GUI 里的 Graph，不只是一个“随手画框和连线”的白板。
 节点本身可以承载文字信息，例如：
 
 - `name`
-- `synopsis`
+- `progress`
 - `detail`
 - `status`
 
@@ -165,7 +165,7 @@ Auto Layout 使用 ELK 来自动整理节点布局。
 ### 节点常用字段
 
 - `name`
-- `synopsis`
+- `progress`
 - `detail`
 - `status`
 - `color index`

@@ -25,7 +25,7 @@ For example, a node may represent:
 A node itself can carry text information such as:
 
 - `name`
-- `synopsis`
+- `progress`
 - `detail`
 - `status`
 
@@ -165,7 +165,7 @@ Automatic layout is usually good for organizing structure first, but it will not
 ### Common node fields
 
 - `name`
-- `synopsis`
+- `progress`
 - `detail`
 - `status`
 - `color index`

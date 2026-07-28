@@ -370,7 +370,7 @@
   "inspector.nodeEditor.title": "Node Editor",
   "inspector.multiEditor.title": "Batch Edit",
   "inspector.field.name": "Name",
-  "inspector.field.synopsis": "Synopsis",
+  "inspector.field.progress": "Progress",
   "inspector.field.detail": "Detail",
   "inspector.field.colorIndex": "Color Index",
   "inspector.action.saveSelection": "Save Selection",

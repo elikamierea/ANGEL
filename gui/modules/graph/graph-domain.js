@@ -67,8 +67,9 @@ export function createGraphDomain(deps) {
     for (const lid of getAllLayerIds()) {
       if (!node.layerContent[lid] || typeof node.layerContent[lid] !== 'object') node.layerContent[lid] = {};
       const item = node.layerContent[lid];
-      if (item.synopsis == null && item.summary != null) item.synopsis = item.summary;
-      item.synopsis = String(item.synopsis || '');
+      if (item.progress == null && item.synopsis != null) item.progress = item.synopsis;
+      if (item.progress == null && item.summary != null) item.progress = item.summary;
+      item.progress = String(item.progress || '');
       item.detail = String(item.detail || '');
       item.status = String(item.status || node.status || 'active');
       if (!Array.isArray(item.resourceBindings)) item.resourceBindings = [];
@@ -96,7 +97,7 @@ export function createGraphDomain(deps) {
     for (const n of nodes) {
       n.createdLayer = getCreatedLayer(n.createdLayer);
       ensureNodeLayerFields(n);
-      n.synopsis = String(n.synopsis || n.summary || n.layerContent?.[state.activeLayer]?.synopsis || '');
+      n.progress = String(n.progress || n.synopsis || n.summary || n.layerContent?.[state.activeLayer]?.progress || '');
 
       // Legacy cleanup: the per-node audit trail was write-only (never surfaced
       // in the UI) and is removed. Drop it from any older project that still has it
