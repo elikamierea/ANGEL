@@ -1748,7 +1748,16 @@ export function createAgentChatUIShell(deps) {
           // Full retract of a first turn: drop the just-added UI bubbles + canonical
           // turns and return the draft to the composer, so it's truly "never sent"
           // (consistent across the CLI and HTTP lines). Continuation turns stay.
-          if (wasFirstTurn) {
+          //
+          // BUT only when the turn produced nothing yet. Once the agent has streamed
+          // text or run a tool (common on a first MCP turn, which is slow to start so
+          // users often stop it mid-work), retracting would wipe the whole visible
+          // conversation — the reported "stopping loses all chat" bug. In that case
+          // keep what's on screen; the CLI runtime persists its session to match.
+          const canonNow = Array.isArray(agentChatState.canonicalByAgent[targetAgentId]?.turns)
+            ? agentChatState.canonicalByAgent[targetAgentId].turns.length : 0;
+          const producedOutputThisTurn = canonNow > canonLenBefore + 1;
+          if (wasFirstTurn && !producedOutputThisTurn) {
             if (typeof agentChatStateManager.truncateAgentTurns === 'function') {
               agentChatStateManager.truncateAgentTurns(targetAgentId, uiLenBefore, canonLenBefore);
             }

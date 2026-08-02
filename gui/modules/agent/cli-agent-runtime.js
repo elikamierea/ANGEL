@@ -393,6 +393,11 @@ export function createCliAgentRuntime(deps = {}) {
       let unsubscribe = null;
       let onAbort = null;
       let emittedText = false;
+      // Set once the run produces user-visible output (streamed text or a tool
+      // call/result). On a user-stop this lets us persist the session even for a
+      // first turn — the UI keeps such a partial turn on screen, so its CLI session
+      // must survive too, or the next message would resume nothing and desync.
+      let producedOutput = false;
       // Seed with the resume id so a successful resume still saves its session even
       // if the CLI's re-emitted session event were ever missed; a fresh attempt
       // starts empty and captures one.
@@ -513,13 +518,16 @@ export function createCliAgentRuntime(deps = {}) {
             break;
           case 'text':
             emittedText = true;
+            producedOutput = true;
             try { params?.onModelText?.(ev.text); } catch (_) {}
             break;
           case 'tool_call':
+            producedOutput = true;
             try { params?.onToolCall?.(functionCallTurn(profile.driver, capturedModel, ev)); } catch (_) {}
             try { params?.onProgress?.(toolCallProgressText(ev), null, { name: String(ev?.name || ''), args: ev?.args || {} }); } catch (_) {}
             break;
           case 'tool_result':
+            producedOutput = true;
             try { params?.onToolOutput?.(toolOutputTurn(profile.driver, capturedModel, ev)); } catch (_) {}
             break;
           case 'usage':
@@ -556,7 +564,12 @@ export function createCliAgentRuntime(deps = {}) {
           // a failure — surface it as an abort (silent "stopped"), never an error
           // bubble. Checked first so the killed-process exit code can't be misread.
           if (params?.signal?.aborted) {
-            if (params?.persistSessionOnAbort && capturedSessionId) {
+            // Persist the session when the caller asked (continuation turns) OR when
+            // this turn already produced visible output — even a first turn. The UI
+            // keeps an output-bearing aborted turn on screen (it only retracts a turn
+            // that produced nothing), so its session must persist to stay in sync and
+            // let the next message resume it.
+            if ((params?.persistSessionOnAbort || producedOutput) && capturedSessionId) {
               try { await persistCliSessionPointer(saveCliSession, agentId, profile, agentDir, capturedSessionId); } catch (_) {}
             }
             settleOnce({ aborted: true });

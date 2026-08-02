@@ -1250,6 +1250,15 @@ export function createFileTreeUI(deps) {
     });
     window.addEventListener('blur', () => closeContextMenu());
     window.addEventListener('resize', () => closeContextMenu());
+    // Clicking anywhere outside the sidebar (canvas, toolbar, etc.) cancels the
+    // file-tree selection, so a subsequent Delete only affects the canvas.
+    // Capture phase so a canvas handler's stopPropagation can't block it.
+    document.addEventListener('mousedown', (evt) => {
+      if (evt.button !== 0) return;
+      const sidebar = fileBrowser?.closest?.('aside') || fileBrowser?.parentElement;
+      if (sidebar && sidebar.contains(evt.target)) return;
+      if (selectedPaths.size > 0) clearSelection();
+    }, true);
     document.addEventListener('keydown', (evt) => {
       if (evt.key === 'Escape') {
         closeContextMenu();
