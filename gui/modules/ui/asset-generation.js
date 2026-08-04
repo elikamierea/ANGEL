@@ -20,6 +20,9 @@ export function createAssetGeneration(deps) {
     fontSizeInput,
     fontHintingInput,
     fontAntialiasInput,
+    fontAaThresholdInput,
+    fontSubpixelXInput,
+    fontSubpixelYInput,
     fontCharsetInput,
     fontPreviewInput,
     fontPreviewScaleInput,
@@ -31,6 +34,15 @@ export function createAssetGeneration(deps) {
     audioBitrateInput,
     audioSampleRateInput,
     audioBitDepthInput,
+    textFileInput,
+    textPathInput,
+    textNameInput,
+    textSourceEncodingInput,
+    textOutputEncodingInput,
+    textPreview,
+    referenceFileInput,
+    referencePathInput,
+    referenceNameInput,
     runCommandByParams,
     renderSpritePreview,
     cssVar,
@@ -40,6 +52,18 @@ export function createAssetGeneration(deps) {
     toolWriteByParams,
     refreshProjectFileTree,
   } = deps;
+
+  // Alpha cutoff used when antialias is off; user-tunable for fine passes (1..254).
+  function readAaThreshold() {
+    const v = Math.trunc(Number(fontAaThresholdInput?.value));
+    return Number.isFinite(v) ? Math.max(1, Math.min(254, v)) : 200;
+  }
+
+  // Subpixel pen nudge (-1..1 px) applied to glyph rendering for fine rasterisation tuning.
+  function readSubpixel(input) {
+    const v = Number(input?.value);
+    return Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0;
+  }
 
   async function loadSpriteFramesFromInput(fileList) {
     const files = Array.from(fileList || []);
@@ -237,12 +261,14 @@ export function createAssetGeneration(deps) {
     baseCtx.fontKerning = fontKerning;
     baseCtx.fillStyle = cssVar('--font-preview-text', '#e8eef7');
 
+    const subX = readSubpixel(fontSubpixelXInput);
+    const subY = readSubpixel(fontSubpixelYInput);
     for (let i = 0; i < lines.length; i += 1) {
       // Baseline at padding + i*lineH + maxAscent, mirroring padY+maxAscent in the export.
-      baseCtx.fillText(lines[i], padding, padding + i * lineH + maxAscent);
+      baseCtx.fillText(lines[i], padding + subX, padding + i * lineH + maxAscent + subY);
     }
     if (aa === 'off') {
-      applyAlphaThresholdToCanvas(baseCtx, baseW, baseH, 200);
+      applyAlphaThresholdToCanvas(baseCtx, baseW, baseH, readAaThreshold());
     }
 
     const outCtx = fontPreviewCanvas.getContext('2d');
@@ -265,6 +291,7 @@ export function createAssetGeneration(deps) {
     if (!file) {
       fontBuildState.fontFile = null;
       fontBuildState.fontFamily = null;
+      fontBuildState.fileFontFamily = null;
       if (fontBuildState.fontUrl) URL.revokeObjectURL(fontBuildState.fontUrl);
       fontBuildState.fontUrl = null;
       fontBuildState.sourceKind = null;
@@ -276,6 +303,9 @@ export function createAssetGeneration(deps) {
     fontBuildState.fontFile = file;
     fontBuildState.fontUrl = URL.createObjectURL(file);
     fontBuildState.fontFamily = `ANGEL_Font_${Date.now()}`;
+    // Remember the file's family so switching to a system font and back can restore it
+    // (the FontFace stays registered in document.fonts even after the URL is revoked).
+    fontBuildState.fileFontFamily = fontBuildState.fontFamily;
     fontBuildState.sourceKind = 'file';
 
     const face = new FontFace(fontBuildState.fontFamily, `url(${fontBuildState.fontUrl})`);
@@ -345,9 +375,8 @@ export function createAssetGeneration(deps) {
     const family = String(fontFamily || '').trim();
     if (!family) throw new Error('Please choose a system font first.');
 
-    if (fontBuildState.fontUrl) URL.revokeObjectURL(fontBuildState.fontUrl);
-    fontBuildState.fontUrl = null;
-    fontBuildState.fontFile = null;
+    // Only switch the active family — keep any loaded file font state intact so the user
+    // can switch back to it later without re-picking the file.
     fontBuildState.fontFamily = family;
     fontBuildState.sourceKind = 'system';
     refreshFontPreview();
@@ -367,10 +396,16 @@ export function createAssetGeneration(deps) {
       return fonts;
     }
 
-    if (fontBuildState.sourceKind === 'system') {
+    // Back to file mode: restore the previously loaded file font if there is one,
+    // otherwise fall back to the default preview font.
+    if (fontBuildState.fileFontFamily) {
+      fontBuildState.fontFamily = fontBuildState.fileFontFamily;
+      fontBuildState.sourceKind = 'file';
+    } else {
       fontBuildState.fontFamily = null;
-      refreshFontPreview();
+      fontBuildState.sourceKind = null;
     }
+    refreshFontPreview();
     return [];
   }
 
@@ -514,11 +549,19 @@ export function createAssetGeneration(deps) {
     // AA=off: raise to 200 so Chromium's grayscale-AA "bridge" pixels between
     // thin strokes (alpha ~120-160) are discarded; only solid-core pixels (200+) survive.
     // AA=on: 1 captures the full ink extent for bounds measurement (no binarisation applied).
-    const scanThreshold = antialias === 'off' ? 200 : 1;
+    const scanThreshold = antialias === 'off' ? readAaThreshold() : 1;
+
+    // Subpixel nudge: shift the actual render pen by a fraction of a pixel while keeping
+    // scanPenX/scanPenY as the fixed measurement/extraction origin. Both passes use the
+    // same nudged pen, so measured bounds and drawn pixels stay consistent.
+    const subX = readSubpixel(fontSubpixelXInput);
+    const subY = readSubpixel(fontSubpixelYInput);
+    const penX = scanPenX + subX;
+    const penY = scanPenY + subY;
 
     const metricsList = chars.map((ch) => {
       scanCtx.clearRect(0, 0, scanW, scanH);
-      scanCtx.fillText(ch, scanPenX, scanPenY);
+      scanCtx.fillText(ch, penX, penY);
       const m = scanCtx.measureText(ch);
       const advance = Math.max(0, Math.ceil(m.width || 0));
 
@@ -649,7 +692,7 @@ export function createAssetGeneration(deps) {
       const holder = pageCanvases.get(glyph.page);
       if (!holder) continue;
       scanCtx.clearRect(0, 0, scanW, scanH);
-      scanCtx.fillText(glyph.ch, scanPenX, scanPenY);
+      scanCtx.fillText(glyph.ch, penX, penY);
       // drawImage clips source coordinates to [0, scanW/H] automatically, so negative
       // cellSrcY (when scanPenY < baselineY, i.e. maxAscent fills the whole headroom)
       // just produces transparent rows at the glyph-cell top — exactly the padY zone.
@@ -658,7 +701,7 @@ export function createAssetGeneration(deps) {
 
     if (antialias === 'off') {
       for (const holder of pageCanvases.values()) {
-        applyAlphaThresholdToCanvas(holder.ctx, holder.canvas.width, holder.canvas.height, 200);
+        applyAlphaThresholdToCanvas(holder.ctx, holder.canvas.width, holder.canvas.height, readAaThreshold());
       }
     }
 
@@ -700,6 +743,111 @@ export function createAssetGeneration(deps) {
     return { pagePaths: writtenPages, fontTxtRelPath, glyphCount: chars.length, pageCount: pages.length };
   }
 
+  function fileExtensionOf(name) {
+    const m = String(name || '').match(/\.[A-Za-z0-9_-]+$/);
+    return m ? m[0] : '';
+  }
+
+  // Names may already carry an extension (e.g. "dialogue.json"); if not, inherit the
+  // source file's extension so text/reference outputs keep a sensible suffix.
+  function ensureNameHasExtension(rawName, sourceFile) {
+    const name = String(rawName || '').trim();
+    if (!name) return '';
+    if (fileExtensionOf(name)) return name;
+    const srcExt = fileExtensionOf(sourceFile?.name || '');
+    return srcExt ? `${name}${srcExt}` : name;
+  }
+
+  function encodeTextToBytes(text, outputEncoding) {
+    if (outputEncoding === 'utf-16le') {
+      const buf = new Uint8Array(text.length * 2);
+      for (let i = 0; i < text.length; i += 1) {
+        const code = text.charCodeAt(i);
+        buf[i * 2] = code & 0xff;
+        buf[i * 2 + 1] = (code >> 8) & 0xff;
+      }
+      return buf;
+    }
+    const utf8 = new TextEncoder().encode(text);
+    if (outputEncoding === 'utf-8-bom') {
+      const buf = new Uint8Array(utf8.length + 3);
+      buf.set([0xef, 0xbb, 0xbf], 0);
+      buf.set(utf8, 3);
+      return buf;
+    }
+    return utf8;
+  }
+
+  async function decodeTextFile(file, sourceEncoding) {
+    const buffer = await file.arrayBuffer();
+    try {
+      return new TextDecoder(sourceEncoding || 'utf-8', { fatal: false }).decode(buffer);
+    } catch {
+      return new TextDecoder('utf-8', { fatal: false }).decode(buffer);
+    }
+  }
+
+  async function refreshTextPreview() {
+    if (!textPreview) return;
+    const file = textFileInput?.files?.[0] || null;
+    if (!file) { textPreview.value = ''; return; }
+    const sourceEncoding = String(textSourceEncodingInput?.value || 'utf-8');
+    textPreview.value = await decodeTextFile(file, sourceEncoding);
+  }
+
+  async function createTextAsset() {
+    const sourceFile = textFileInput?.files?.[0] || null;
+    if (!sourceFile) throw new Error('Please select a text file first.');
+
+    const rawPath = String(textPathInput?.value || '').trim();
+    const rawName = String(textNameInput?.value || '').trim();
+    if (!rawPath) throw new Error('Path is required.');
+    if (!rawName) throw new Error('Name is required.');
+
+    const path = rawPath.replace(/^\/+/, '').replace(/\\/g, '/');
+    const srcPath = path.toLowerCase().startsWith('src/') ? path : `src/${path}`;
+    if (textPathInput) textPathInput.value = srcPath;
+
+    const finalName = ensureNameHasExtension(rawName, sourceFile);
+    const normalizedPath = normalizeToolRelativePath(srcPath);
+    const outputRelPath = `${normalizedPath}/${finalName}`;
+
+    const outputEncoding = String(textOutputEncodingInput?.value || 'keep');
+    if (outputEncoding === 'keep') {
+      // No transcode: copy the original bytes verbatim.
+      await writeBinaryFileByRelativePath(outputRelPath, sourceFile);
+    } else {
+      const sourceEncoding = String(textSourceEncodingInput?.value || 'utf-8');
+      const decoded = await decodeTextFile(sourceFile, sourceEncoding);
+      const bytes = encodeTextToBytes(decoded, outputEncoding);
+      await writeBinaryFileByRelativePath(outputRelPath, new Blob([bytes]));
+    }
+    await refreshProjectFileTree(false);
+    return { path: outputRelPath, outputEncoding };
+  }
+
+  async function createReferenceFile() {
+    const sourceFile = referenceFileInput?.files?.[0] || null;
+    if (!sourceFile) throw new Error('Please select a file first.');
+
+    const rawPath = String(referencePathInput?.value || '').trim() || 'reference';
+    const rawName = String(referenceNameInput?.value || '').trim();
+    if (!rawName) throw new Error('Name is required.');
+
+    // Reference files live outside src/ (default: reference/), so unlike the asset
+    // creators we do NOT force a src/ prefix.
+    const path = rawPath.replace(/^\/+/, '').replace(/\\/g, '/');
+    if (referencePathInput) referencePathInput.value = path;
+
+    const finalName = ensureNameHasExtension(rawName, sourceFile);
+    const normalizedPath = normalizeToolRelativePath(path);
+    const outputRelPath = `${normalizedPath}/${finalName}`;
+
+    await writeBinaryFileByRelativePath(outputRelPath, sourceFile);
+    await refreshProjectFileTree(false);
+    return { path: outputRelPath };
+  }
+
   return {
     loadSpriteFramesFromInput,
     createSpriteAtlasAndMetadata,
@@ -712,5 +860,8 @@ export function createAssetGeneration(deps) {
     appendCharsetFromFiles,
     createBitmapFontAssets,
     createAudioAsset,
+    refreshTextPreview,
+    createTextAsset,
+    createReferenceFile,
   };
 }

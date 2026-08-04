@@ -76,7 +76,7 @@ L0里出现了节点“Chapter 1”，用户在其中填了他的大致想法。
 
 ## 工作环境（代码侧）
 
-你需要从<root>/README.md中了解你所即将使用的代码模板的基本信息，以及“这方面的详细信息写在了哪个文件里”。之后从各个<root>/MANUAL_<模块名>.md里了解详细信息。
+你需要从<root>/reference/engine/README.md中了解你所即将使用的代码模板的基本信息，以及“这方面的详细信息写在了哪个文件里”。之后从各个<root>/reference/engine/MANUAL_<模块名>.md里了解详细信息。
 
 **MANUAL即权威（manual-first）**：README与MANUAL已覆盖正常开发所需的全部API与用法。默认工作方式是：查对应MANUAL→按其说明与示例**直接写**，不要为了“确认API行为”而去翻<root>/src/engine的框架源码。仅当以下情况之一成立时才读引擎源码，且只读与问题直接相关的最小范围：
 1. MANUAL完全没有覆盖你需要的功能；

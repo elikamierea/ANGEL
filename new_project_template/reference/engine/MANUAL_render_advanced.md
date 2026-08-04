@@ -99,6 +99,60 @@ Practical rule:
 - `surface_flush(...)` makes a surface ready up to a requested point
 - `surface_draw(...)` only reads whatever completed contents that surface already has
 
+## Flush depth is a cutoff, not "flush everything" (common mistake)
+
+`surface_flush(handle, depth)` executes only the surface nodes whose sort key is
+**strictly before** the flush node's own `(depth, submissionOrder)`. It stops at
+the first node whose `depth >= depth` and discards the rest for this frame.
+
+Two hard rules follow:
+
+- **The flush `depth` must be greater than the largest depth you drew into the
+  surface.** Anything submitted at a depth `>=` the flush depth is *silently
+  dropped* and never appears. Content that is never flushed shows as **nothing**
+  (a blank/black region), not "one frame late". When in doubt, pass a value far
+  larger than any content depth (e.g. `1.0e9f`).
+- **The composite must be ordered after the flush.** `surface_draw(...)` /
+  `surface_draw_with_shader(...)` must run at a depth `>=` the flush depth (same
+  depth is fine, since it is submitted later). Compositing at a lower depth than
+  the flush reads stale/empty contents.
+
+The default `depth = 0.0f` on `surface_flush(...)` flushes almost nothing. Do not
+rely on it.
+
+### Wrong: flush depth too low, most of the scene is dropped
+
+```cpp
+surface_set_target(scene);
+surface_clear(0.0f, {0, 0, 0, 1});             // depth 0
+draw_rectangle(wx, wy, 300, 140, 0.0f, gray);  // window at depth 0
+draw_sprite(px, py, player, 0, 50.0f);         // depth 50
+draw_sprite(0, 0, background, 0, 100.0f);      // depth 100
+surface_reset_target();
+
+surface_flush(scene, 0.0f);        // BUG: cutoff 0.0 only executes nodes with
+                                   // depth < 0, plus the depth-0 clear and the
+                                   // depth-0 window. player (50) and background
+                                   // (100) are never rendered into the surface.
+surface_draw(scene, 0, 0, 0.0f);   // -> composited result is a black screen with
+                                   // only the window visible.
+```
+
+### Right: flush past all content, composite after the flush
+
+```cpp
+surface_set_target(scene);
+surface_clear(0.0f, {0, 0, 0, 1});
+draw_rectangle(wx, wy, 300, 140, 0.0f, gray);
+draw_sprite(px, py, player, 0, 50.0f);
+draw_sprite(0, 0, background, 0, 100.0f);      // max content depth = 100
+surface_reset_target();
+
+const float kFlush = 1.0e9f;         // larger than any content depth above
+surface_flush(scene, kFlush);        // executes ALL scene nodes
+surface_draw(scene, 0, 0, kFlush);   // submitted after the flush -> runs after it
+```
+
 ## Surface reads
 
 ```cpp

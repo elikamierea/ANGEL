@@ -312,7 +312,10 @@ export function createAgentModelSettingsController(deps) {
   // the human name + version. '' (the first option) = the CLI's own default. A
   // saved custom id not in this list is preserved as an extra option, so ids
   // hand-edited into the settings file survive the dialog round-trip.
-  // (List refreshed 2026-07 against Claude Code's /model.)
+  // (claude-sub refreshed 2026-07 against Claude Code's /model; GLM/Kimi/DeepSeek
+  // refreshed 2026-08 — old kimi-k2 series retired 2026-05-25, GLM-5.x added,
+  // z.ai's 1M-context variant uses the `glm-5.2[1m]` alias form, and DeepSeek's
+  // deepseek-chat/deepseek-reasoner retired 2026-07-24 → deepseek-v4-pro/flash.)
   const CLI_MODEL_SUGGESTIONS = {
     'claude-sub': [
       { value: 'sonnet', label: 'Sonnet 4.6' },
@@ -321,9 +324,9 @@ export function createAgentModelSettingsController(deps) {
       { value: 'opus', label: 'Opus 4.8' },
       { value: 'haiku', label: 'Haiku 4.5' },
     ],
-    'kimi-k2': ['kimi-k2-turbo-preview', 'kimi-k2-thinking-turbo', 'kimi-k2-0905-preview'],
-    glm: ['glm-4.6', 'glm-4.5-air'],
-    deepseek: ['deepseek-chat', 'deepseek-reasoner'],
+    'kimi-k2': ['kimi-k3', 'kimi-k2.7-code', 'kimi-k2.6', 'kimi-k2.5'],
+    glm: ['glm-5.2', 'glm-5.2[1m]', 'glm-5.1', 'glm-5', 'glm-4.7', 'glm-4.6', 'glm-4.5-air'],
+    deepseek: ['deepseek-v4-pro', 'deepseek-v4-flash'],
     // (Refreshed 2026-07-18 against codex-cli 0.142.1's bundled models.json —
     // the gpt-5.1-codex-* generation only survives there as migration aliases.
     // gpt-5.3-codex removed: ChatGPT-subscription accounts get HTTP 400 "model

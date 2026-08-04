@@ -63,6 +63,8 @@
             <button id="menu-create-sprite" type="button" role="menuitem" data-i18n="topbar.resource.createSprite">Create Sprite</button>
             <button id="menu-create-font" type="button" role="menuitem" data-i18n="topbar.resource.createFont">Create Font</button>
             <button id="menu-create-audio" type="button" role="menuitem" data-i18n="topbar.resource.createAudio">Create Audio</button>
+            <button id="menu-create-text" type="button" role="menuitem" data-i18n="topbar.resource.createText">Create Text</button>
+            <button id="menu-create-reference" type="button" role="menuitem" data-i18n="topbar.resource.createReference">Add Reference File</button>
           </div>
         </div>
 
@@ -581,14 +583,12 @@
           <label><span data-i18n="modal.sprite.frames">Frames (multi-select images)</span>
             <input id="sprite-files" type="file" accept="image/*" multiple />
           </label>
-          <div class="sprite-path-row">
-            <label><span data-i18n="modal.sprite.path">Path (relative to project root)</span>
-              <input id="sprite-path" type="text" data-i18n-placeholder="modal.sprite.pathPlaceholder" placeholder="src/assets/sprites" />
-            </label>
-            <label><span data-i18n="modal.sprite.name">Name</span>
+          <label><span class="asset-path-label"><span data-i18n="modal.sprite.path">Path (relative to project root)</span><span id="sprite-path-warning" class="asset-outside-warning hidden" data-i18n="modal.common.outsideAssetsWarning">⚠ Outside assets/ — will NOT be bundled into the game .pak.</span></span>
+            <input id="sprite-path" type="text" data-i18n-placeholder="modal.sprite.pathPlaceholder" placeholder="src/assets/sprites" />
+          </label>
+          <label><span data-i18n="modal.sprite.name">Name</span>
             <input id="sprite-name" type="text" data-i18n-placeholder="modal.sprite.namePlaceholder" placeholder="sprite_name" />
-            </label>
-          </div>
+          </label>
           <div class="sprite-pivot-row">
             <label><span data-i18n="modal.sprite.pivotX">Pivot X</span>
               <input id="sprite-pivot-x" type="number" step="1" value="0" />
@@ -634,14 +634,12 @@
               </select>
             </label>
           </div>
-          <div class="sprite-path-row">
-            <label><span data-i18n="modal.font.path">Path (relative to project root)</span>
-              <input id="font-path" type="text" data-i18n-placeholder="modal.font.pathPlaceholder" placeholder="src/assets/fonts" />
-            </label>
-            <label><span data-i18n="modal.font.name">Name</span>
+          <label><span class="asset-path-label"><span data-i18n="modal.font.path">Path (relative to project root)</span><span id="font-path-warning" class="asset-outside-warning hidden" data-i18n="modal.common.outsideAssetsWarning">⚠ Outside assets/ — will NOT be bundled into the game .pak.</span></span>
+            <input id="font-path" type="text" data-i18n-placeholder="modal.font.pathPlaceholder" placeholder="src/assets/fonts" />
+          </label>
+          <label><span data-i18n="modal.font.name">Name</span>
             <input id="font-name" type="text" data-i18n-placeholder="modal.font.namePlaceholder" placeholder="font_name" />
-            </label>
-          </div>
+          </label>
           <div class="sprite-pivot-row">
             <label><span data-i18n="modal.font.size">Font Size</span>
               <input id="font-size" type="number" min="4" step="1" value="32" />
@@ -661,8 +659,19 @@
               <option value="off" data-i18n="modal.font.antialias.off">off</option>
             </select>
           </label>
+          <label id="font-aa-threshold-row" class="hidden"><span data-i18n="modal.font.aaThreshold">Alpha threshold (antialias off)</span>
+            <input id="font-aa-threshold" type="number" min="1" max="254" step="1" value="200" />
+          </label>
+          <div class="sprite-pivot-row">
+            <label><span data-i18n="modal.font.subpixelX">Subpixel nudge X</span>
+              <input id="font-subpixel-x" type="number" min="-1" max="1" step="0.05" value="0" />
+            </label>
+            <label><span data-i18n="modal.font.subpixelY">Subpixel nudge Y</span>
+              <input id="font-subpixel-y" type="number" min="-1" max="1" step="0.05" value="0" />
+            </label>
+          </div>
           <label><span data-i18n="modal.font.charset">Charset</span>
-            <textarea id="font-charset" rows="4" data-i18n-placeholder="modal.font.charsetPlaceholder" placeholder="characters to include"></textarea>
+            <textarea id="font-charset" rows="4" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" data-i18n-placeholder="modal.font.charsetPlaceholder" placeholder="characters to include"></textarea>
           </label>
           <label><span data-i18n="modal.font.charsetImport">Import charset from text files (scan all chars and append)</span>
             <input id="font-charset-files" type="file" accept=".txt,.md,.markdown,.json,.csv,.xml,.yaml,.yml,.html,.htm,.js,.ts,.jsx,.tsx,.css,.py,.java,.c,.cpp,.h,.rs,.go,.rb,.php,.swift,text/plain" multiple />
@@ -696,14 +705,12 @@
           <label><span data-i18n="modal.audio.file">Audio file</span>
             <input id="audio-file" type="file" accept="audio/*,.wav,.ogg,.mp3,.flac,.aac,.m4a" />
           </label>
-          <div class="sprite-path-row">
-            <label><span data-i18n="modal.audio.path">Path (relative to project root)</span>
-              <input id="audio-path" type="text" data-i18n-placeholder="modal.audio.pathPlaceholder" placeholder="src/assets/audio" />
-            </label>
-            <label><span data-i18n="modal.audio.name">Name</span>
-              <input id="audio-name" type="text" data-i18n-placeholder="modal.audio.namePlaceholder" placeholder="audio_name" />
-            </label>
-          </div>
+          <label><span class="asset-path-label"><span data-i18n="modal.audio.path">Path (relative to project root)</span><span id="audio-path-warning" class="asset-outside-warning hidden" data-i18n="modal.common.outsideAssetsWarning">⚠ Outside assets/ — will NOT be bundled into the game .pak.</span></span>
+            <input id="audio-path" type="text" data-i18n-placeholder="modal.audio.pathPlaceholder" placeholder="src/assets/audio" />
+          </label>
+          <label><span data-i18n="modal.audio.name">Name</span>
+            <input id="audio-name" type="text" data-i18n-placeholder="modal.audio.namePlaceholder" placeholder="audio_name" />
+          </label>
           <div class="sprite-pivot-row">
             <label><span data-i18n="modal.audio.format">Output format</span>
               <select id="audio-format">
@@ -742,11 +749,87 @@
               </select>
             </label>
           </div>
-          <p id="audio-note" class="modal-note" data-i18n="modal.audio.note">Choose an audio file and target output settings. Conversion wiring will be added next.</p>
+          <p id="audio-note" class="modal-note" data-i18n="modal.audio.note">Pick an audio file and target output settings; Create converts it via ffmpeg into src/assets.</p>
         </div>
         <div class="modal-actions">
           <button id="audio-cancel" type="button" data-i18n="modal.common.cancel">Cancel</button>
           <button id="audio-create" type="button" data-i18n="modal.audio.create">Create</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="text-modal" class="modal hidden" aria-hidden="true" role="dialog" aria-labelledby="text-title">
+      <div class="modal-backdrop" data-close-text="1"></div>
+      <div class="modal-panel">
+        <div class="modal-head">
+          <h3 id="text-title" data-i18n="modal.text.title">Create Text Resource</h3>
+          <button id="text-close" type="button" data-i18n="ui.symbol.close">X</button>
+        </div>
+        <div class="modal-body">
+          <label><span data-i18n="modal.text.file">Text file (.txt/.json/.md)</span>
+            <input id="text-file" type="file" accept=".txt,.json,.md,.markdown,text/plain,application/json" />
+          </label>
+          <label><span class="asset-path-label"><span data-i18n="modal.text.path">Path (relative to project root)</span><span id="text-path-warning" class="asset-outside-warning hidden" data-i18n="modal.common.outsideAssetsWarning">⚠ Outside assets/ — will NOT be bundled into the game .pak.</span></span>
+            <input id="text-path" type="text" data-i18n-placeholder="modal.text.pathPlaceholder" placeholder="src/assets/texts" />
+          </label>
+          <label><span data-i18n="modal.text.name">Name (with extension)</span>
+            <input id="text-name" type="text" data-i18n-placeholder="modal.text.namePlaceholder" placeholder="dialogue.json" />
+          </label>
+          <div class="sprite-pivot-row">
+            <label><span data-i18n="modal.text.sourceEncoding">Source encoding (read / preview)</span>
+              <select id="text-source-encoding">
+                <option value="utf-8" selected data-i18n="modal.text.encoding.utf8">UTF-8</option>
+                <option value="gbk" data-i18n="modal.text.encoding.gbk">GBK (Simplified Chinese)</option>
+                <option value="big5" data-i18n="modal.text.encoding.big5">Big5 (Traditional Chinese)</option>
+                <option value="shift_jis" data-i18n="modal.text.encoding.shiftjis">Shift_JIS (Japanese)</option>
+                <option value="euc-kr" data-i18n="modal.text.encoding.euckr">EUC-KR (Korean)</option>
+                <option value="utf-16le" data-i18n="modal.text.encoding.utf16le">UTF-16 LE</option>
+                <option value="windows-1252" data-i18n="modal.text.encoding.win1252">Windows-1252</option>
+              </select>
+            </label>
+            <label><span data-i18n="modal.text.outputEncoding">Output encoding</span>
+              <select id="text-output-encoding">
+                <option value="keep" selected data-i18n="modal.text.output.keep">Keep original (no conversion)</option>
+                <option value="utf-8" data-i18n="modal.text.output.utf8">UTF-8</option>
+                <option value="utf-8-bom" data-i18n="modal.text.output.utf8bom">UTF-8 (with BOM)</option>
+                <option value="utf-16le" data-i18n="modal.text.output.utf16le">UTF-16 LE</option>
+              </select>
+            </label>
+          </div>
+          <label><span data-i18n="modal.text.preview">Preview</span>
+            <textarea id="text-preview" rows="8" readonly data-i18n-placeholder="modal.text.previewPlaceholder" placeholder="Select a text file to preview its decoded content."></textarea>
+          </label>
+          <p id="text-note" class="modal-note" data-i18n="modal.text.note">Imports a text file into src/assets/texts. Default keeps the original bytes; pick an output encoding to transcode from the source encoding above.</p>
+        </div>
+        <div class="modal-actions">
+          <button id="text-cancel" type="button" data-i18n="modal.common.cancel">Cancel</button>
+          <button id="text-create" type="button" data-i18n="modal.text.create">Create</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="reference-modal" class="modal hidden" aria-hidden="true" role="dialog" aria-labelledby="reference-title">
+      <div class="modal-backdrop" data-close-reference="1"></div>
+      <div class="modal-panel">
+        <div class="modal-head">
+          <h3 id="reference-title" data-i18n="modal.reference.title">Add Reference File</h3>
+          <button id="reference-close" type="button" data-i18n="ui.symbol.close">X</button>
+        </div>
+        <div class="modal-body">
+          <label><span data-i18n="modal.reference.file">File</span>
+            <input id="reference-file" type="file" />
+          </label>
+          <label><span data-i18n="modal.reference.path">Path (relative to project root)</span>
+            <input id="reference-path" type="text" data-i18n-placeholder="modal.reference.pathPlaceholder" placeholder="reference" />
+          </label>
+          <label><span data-i18n="modal.reference.name">Name (with extension)</span>
+            <input id="reference-name" type="text" data-i18n-placeholder="modal.reference.namePlaceholder" placeholder="file_name.ext" />
+          </label>
+          <p id="reference-note" class="modal-note" data-i18n="modal.reference.note">Files here are reference material for agents only — they are NOT bundled into the game build.</p>
+        </div>
+        <div class="modal-actions">
+          <button id="reference-cancel" type="button" data-i18n="modal.common.cancel">Cancel</button>
+          <button id="reference-create" type="button" data-i18n="modal.reference.create">Add</button>
         </div>
       </div>
     </section>

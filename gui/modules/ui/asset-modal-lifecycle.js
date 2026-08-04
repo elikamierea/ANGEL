@@ -21,6 +21,15 @@ export function createAssetModalLifecycle(deps) {
     fontPreviewScaleInput,
     setFontSourceMode,
     refreshFontPreview,
+    textModal,
+    textPathInput,
+    textNameInput,
+    textPreview,
+    textSourceEncodingInput,
+    textOutputEncodingInput,
+    referenceModal,
+    referencePathInput,
+    referenceNameInput,
   } = deps;
 
   function buildVisibleAsciiCharset() {
@@ -88,6 +97,37 @@ export function createAssetModalLifecycle(deps) {
     audioModal.setAttribute('aria-hidden', 'true');
   }
 
+  function openTextModal() {
+    if (!textModal) return;
+    textModal.classList.remove('hidden');
+    textModal.setAttribute('aria-hidden', 'false');
+    if (textPathInput && !textPathInput.value) textPathInput.value = 'src/assets/texts';
+    if (textSourceEncodingInput && !textSourceEncodingInput.value) textSourceEncodingInput.value = 'utf-8';
+    if (textOutputEncodingInput && !textOutputEncodingInput.value) textOutputEncodingInput.value = 'keep';
+    if (textPreview) textPreview.value = '';
+    if (textNameInput) textNameInput.value = '';
+  }
+
+  function closeTextModal() {
+    if (!textModal) return;
+    textModal.classList.add('hidden');
+    textModal.setAttribute('aria-hidden', 'true');
+  }
+
+  function openReferenceModal() {
+    if (!referenceModal) return;
+    referenceModal.classList.remove('hidden');
+    referenceModal.setAttribute('aria-hidden', 'false');
+    if (referencePathInput && !referencePathInput.value) referencePathInput.value = 'reference';
+    if (referenceNameInput) referenceNameInput.value = '';
+  }
+
+  function closeReferenceModal() {
+    if (!referenceModal) return;
+    referenceModal.classList.add('hidden');
+    referenceModal.setAttribute('aria-hidden', 'true');
+  }
+
   return {
     openSpriteModal,
     closeSpriteModal,
@@ -96,5 +136,9 @@ export function createAssetModalLifecycle(deps) {
     openAudioModal,
     closeAudioModal,
     syncAudioFormatFields,
+    openTextModal,
+    closeTextModal,
+    openReferenceModal,
+    closeReferenceModal,
   };
 }

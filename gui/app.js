@@ -210,6 +210,8 @@ const menuExportRelease = document.getElementById('menu-export-release');
 const menuCreateSprite = document.getElementById('menu-create-sprite');
 const menuCreateFont = document.getElementById('menu-create-font');
 const menuCreateAudio = document.getElementById('menu-create-audio');
+const menuCreateText = document.getElementById('menu-create-text');
+const menuCreateReference = document.getElementById('menu-create-reference');
 
 const agentModelModal = document.getElementById('agent-model-modal');
 const languageModal = document.getElementById('language-modal');
@@ -302,6 +304,29 @@ const audioSampleRateInput = document.getElementById('audio-sample-rate');
 const audioBitDepthRow = document.getElementById('audio-row-bit-depth');
 const audioBitDepthInput = document.getElementById('audio-bit-depth');
 const audioNote = document.getElementById('audio-note');
+const spritePathWarning = document.getElementById('sprite-path-warning');
+const fontPathWarning = document.getElementById('font-path-warning');
+const audioPathWarning = document.getElementById('audio-path-warning');
+const textModal = document.getElementById('text-modal');
+const textClose = document.getElementById('text-close');
+const textCancel = document.getElementById('text-cancel');
+const textCreate = document.getElementById('text-create');
+const textFileInput = document.getElementById('text-file');
+const textPathInput = document.getElementById('text-path');
+const textPathWarning = document.getElementById('text-path-warning');
+const textNameInput = document.getElementById('text-name');
+const textSourceEncodingInput = document.getElementById('text-source-encoding');
+const textOutputEncodingInput = document.getElementById('text-output-encoding');
+const textPreview = document.getElementById('text-preview');
+const textNote = document.getElementById('text-note');
+const referenceModal = document.getElementById('reference-modal');
+const referenceClose = document.getElementById('reference-close');
+const referenceCancel = document.getElementById('reference-cancel');
+const referenceCreate = document.getElementById('reference-create');
+const referenceFileInput = document.getElementById('reference-file');
+const referencePathInput = document.getElementById('reference-path');
+const referenceNameInput = document.getElementById('reference-name');
+const referenceNote = document.getElementById('reference-note');
 const fontSourceSystemRadio = document.getElementById('font-source-system');
 const fontSourceFileRadio = document.getElementById('font-source-file');
 const fontSourceSystemRow = document.getElementById('font-source-system-row');
@@ -313,6 +338,10 @@ const fontNameInput = document.getElementById('font-name');
 const fontSizeInput = document.getElementById('font-size');
 const fontHintingInput = document.getElementById('font-hinting');
 const fontAntialiasInput = document.getElementById('font-antialias');
+const fontAaThresholdRow = document.getElementById('font-aa-threshold-row');
+const fontAaThresholdInput = document.getElementById('font-aa-threshold');
+const fontSubpixelXInput = document.getElementById('font-subpixel-x');
+const fontSubpixelYInput = document.getElementById('font-subpixel-y');
 const fontCharsetInput = document.getElementById('font-charset');
 const fontCharsetFilesInput = document.getElementById('font-charset-files');
 const fontPreviewInput = document.getElementById('font-preview-input');
@@ -547,6 +576,7 @@ const AGENT_MODEL_CONTEXT_MAX_WINDOWS = {
   'doubao-seed-2-0-code-preview-260215': 128000,
   'doubao-seed-1-8-251228': 128000,
   'doubao-seed-code-preview-251028': 128000,
+  'kimi-k3': 1000000,
   'kimi-k2.7-code': 256000,
   'kimi-k2.7-code-highspeed': 256000,
   'kimi-k2.6': 256000,
@@ -557,6 +587,10 @@ const AGENT_MODEL_CONTEXT_MAX_WINDOWS = {
   'moonshot-v1-8k-vision-preview': 8000,
   'moonshot-v1-32k-vision-preview': 32000,
   'moonshot-v1-128k-vision-preview': 128000,
+  'glm-5.2': 1000000,
+  'glm-5.1': 200000,
+  'glm-5': 200000,
+  'glm-4.7': 200000,
   'glm-4.6': 200000,
   'glm-4.5': 128000,
   'glm-4.5-air': 128000,
@@ -761,6 +795,7 @@ const AGENT_MODEL_CATALOG = [
     providerId: 'moonshot',
     providerLabel: 'Moonshot (Kimi)',
     models: [
+      'kimi-k3',
       'kimi-k2.7-code',
       'kimi-k2.7-code-highspeed',
       'kimi-k2.6',
@@ -774,6 +809,7 @@ const AGENT_MODEL_CATALOG = [
     ],
     methodModels: {
       api_key: [
+        'kimi-k3',
         'kimi-k2.7-code',
         'kimi-k2.7-code-highspeed',
         'kimi-k2.6',
@@ -790,9 +826,9 @@ const AGENT_MODEL_CATALOG = [
   {
     providerId: 'zai',
     providerLabel: 'Z.ai (GLM)',
-    models: ['glm-4.6', 'glm-4.5', 'glm-4.5-air', 'glm-4.5-flash'],
+    models: ['glm-5.2', 'glm-5.1', 'glm-5', 'glm-4.7', 'glm-4.6', 'glm-4.5', 'glm-4.5-air', 'glm-4.5-flash'],
     methodModels: {
-      api_key: ['glm-4.6', 'glm-4.5', 'glm-4.5-air', 'glm-4.5-flash'],
+      api_key: ['glm-5.2', 'glm-5.1', 'glm-5', 'glm-4.7', 'glm-4.6', 'glm-4.5', 'glm-4.5-air', 'glm-4.5-flash'],
     },
   },
 ];
@@ -3900,6 +3936,9 @@ const assetGeneration = createAssetGeneration({
   fontSizeInput,
   fontHintingInput,
   fontAntialiasInput,
+  fontAaThresholdInput,
+  fontSubpixelXInput,
+  fontSubpixelYInput,
   fontCharsetInput,
   fontPreviewInput,
   fontPreviewScaleInput,
@@ -3911,6 +3950,15 @@ const assetGeneration = createAssetGeneration({
   audioBitrateInput,
   audioSampleRateInput,
   audioBitDepthInput,
+  textFileInput,
+  textPathInput,
+  textNameInput,
+  textSourceEncodingInput,
+  textOutputEncodingInput,
+  textPreview,
+  referenceFileInput,
+  referencePathInput,
+  referenceNameInput,
   runCommandByParams,
   renderSpritePreview,
   cssVar,
@@ -3933,6 +3981,9 @@ const {
   appendCharsetFromFiles,
   createBitmapFontAssets,
   createAudioAsset,
+  refreshTextPreview,
+  createTextAsset,
+  createReferenceFile,
 } = assetGeneration;
 buildSpriteAtlasAndMetadataFromFrames = buildSpriteAtlasAndMetadataFromFramesFn;
 
@@ -3958,6 +4009,15 @@ const assetModalLifecycle = createAssetModalLifecycle({
   audioSampleRateInput,
   audioBitDepthRow,
   audioBitDepthInput,
+  textModal,
+  textPathInput,
+  textNameInput,
+  textPreview,
+  textSourceEncodingInput,
+  textOutputEncodingInput,
+  referenceModal,
+  referencePathInput,
+  referenceNameInput,
 });
 _openSpriteModalImpl = assetModalLifecycle.openSpriteModal;
 _closeSpriteModalImpl = assetModalLifecycle.closeSpriteModal;
@@ -3966,6 +4026,10 @@ _closeFontModalImpl = assetModalLifecycle.closeFontModal;
 const openAudioModal = assetModalLifecycle.openAudioModal;
 const closeAudioModal = assetModalLifecycle.closeAudioModal;
 const syncAudioFormatFields = assetModalLifecycle.syncAudioFormatFields;
+const openTextModal = assetModalLifecycle.openTextModal;
+const closeTextModal = assetModalLifecycle.closeTextModal;
+const openReferenceModal = assetModalLifecycle.openReferenceModal;
+const closeReferenceModal = assetModalLifecycle.closeReferenceModal;
 
 const runTestModalController = createRunTestModalController({
   runTestModal,
@@ -4049,6 +4113,16 @@ menuCreateAudio?.addEventListener('click', () => {
   closeAllMenus();
   setStatus(t('modal.audio.status.opened'));
 });
+menuCreateText?.addEventListener('click', () => {
+  openTextModal();
+  closeAllMenus();
+  setStatus(t('modal.text.status.opened'));
+});
+menuCreateReference?.addEventListener('click', () => {
+  openReferenceModal();
+  closeAllMenus();
+  setStatus(t('modal.reference.status.opened'));
+});
 
 agentModelSettingsController.bindEvents();
 
@@ -4081,6 +4155,10 @@ const assetModalBindings = createAssetModalBindings({
     fontSizeInput,
     fontHintingInput,
     fontAntialiasInput,
+    fontAaThresholdRow,
+    fontAaThresholdInput,
+    fontSubpixelXInput,
+    fontSubpixelYInput,
     fontClose,
     fontCancel,
     fontCreate,
@@ -4097,6 +4175,28 @@ const assetModalBindings = createAssetModalBindings({
     audioModal,
     audioSampleRateRow,
     audioBitDepthRow,
+    spritePathWarning,
+    fontPathWarning,
+    audioPathWarning,
+    textPathWarning,
+    textModal,
+    textClose,
+    textCancel,
+    textCreate,
+    textFileInput,
+    textPathInput,
+    textNameInput,
+    textSourceEncodingInput,
+    textOutputEncodingInput,
+    textNote,
+    referenceModal,
+    referenceClose,
+    referenceCancel,
+    referenceCreate,
+    referenceFileInput,
+    referencePathInput,
+    referenceNameInput,
+    referenceNote,
     runTestInput,
     runTestDebug,
     runTestRecord,
@@ -4125,6 +4225,11 @@ const assetModalBindings = createAssetModalBindings({
   createAudioAsset,
   closeAudioModal,
   syncAudioFormatFields,
+  refreshTextPreview,
+  createTextAsset,
+  closeTextModal,
+  createReferenceFile,
+  closeReferenceModal,
   resolveRunTestModal,
   setStatus,
   t,

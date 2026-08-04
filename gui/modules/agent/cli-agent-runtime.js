@@ -340,7 +340,7 @@ export function createCliAgentRuntime(deps = {}) {
     // "understand the codebase first") and burn turns reading src/engine even
     // though the MANUALs are authoritative. State the manual-first rule per run —
     // it also covers existing projects whose seeded prompt.md predates the rule.
-    directives.push('写代码时以项目根目录的 README.md 与 MANUAL_*.md 为权威依据，查到对应说明后**直接实现**。**非必要不要翻阅 src/engine 框架源码**——“必要”仅限：MANUAL 未覆盖该功能 / 严格按 MANUAL 实现仍与实际行为不符 / 追查深入引擎内部的 bug。确需翻阅时只读最小相关范围，并把结论补记进记忆文件避免重复。');
+    directives.push('写代码时以项目 reference/engine/ 下的 README.md 与 MANUAL_*.md 为权威依据，查到对应说明后**直接实现**。**非必要不要翻阅 src/engine 框架源码**——“必要”仅限：MANUAL 未覆盖该功能 / 严格按 MANUAL 实现仍与实际行为不符 / 追查深入引擎内部的 bug。确需翻阅时只读最小相关范围，并把结论补记进记忆文件避免重复。');
     const codexWithoutMcp = driver.id === 'codex' && !getDangerouslySkipPermissions?.();
     if (codexWithoutMcp) {
       directives.push('**不要把磁盘上的 angel.json 当作当前设计来读写**：它只是上次手动保存的过期快照，实时设计图不经文件系统提供。');

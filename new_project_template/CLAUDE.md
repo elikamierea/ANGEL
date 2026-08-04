@@ -1,6 +1,6 @@
 # 项目守则（对所有 coding agent 生效）
 
-本项目基于 ANGEL 引擎模板：`README.md` 是总览，各 `MANUAL_*.md` 是对应模块的**权威使用文档**。
+本项目基于 ANGEL 引擎模板：引擎文档都在 `reference/engine/` 下——`reference/engine/README.md` 是总览，各 `reference/engine/MANUAL_*.md` 是对应模块的**权威使用文档**。
 
 - **Manual-first**：写代码前查对应 MANUAL，按其说明与示例直接实现。不要为了"确认 API 行为"去翻 `src/engine` 源码。
 - 仅当下列情况之一成立时才读 `src/engine`，且只读与问题直接相关的最小范围：

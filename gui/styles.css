@@ -892,12 +892,18 @@ body.dragging-agent-chat * {
   align-self: center;
 }
 .modal-body input,
-.modal-body select {
+.modal-body select,
+.modal-body textarea {
   background: var(--input-bg);
   color: var(--input-text);
   border: 1px solid var(--input-border);
   border-radius: 6px;
   padding: 7px 8px;
+}
+.modal-body textarea {
+  resize: vertical;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 .modal-note { margin: 0; font-size: 12px; color: var(--modal-note-text); }
 .cli-memory-seed-options { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
@@ -1106,6 +1112,20 @@ body.dragging-agent-chat * {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+}
+.asset-path-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.asset-outside-warning {
+  color: #ff4d4d;
+  font-weight: 700;
+  text-align: right;
+}
+.asset-outside-warning.hidden {
+  display: none;
 }
 .font-source-mode-row {
   display: flex;
