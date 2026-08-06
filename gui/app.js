@@ -64,8 +64,6 @@ const nodes = [];
 
 const edges = [];
 
-const containmentRelations = [];
-const mirrorRelations = [];
 
 const conflicts = [];
 
@@ -392,6 +390,8 @@ const multiEditorForm = document.getElementById('multi-editor-form');
 const multiFieldColorIndex = document.getElementById('multi-field-color-index');
 const multiColorIndexSwatch = document.getElementById('multi-color-index-swatch');
 const fieldName = document.getElementById('field-name');
+const mirrorSourceRow = document.getElementById('mirror-source-row');
+const mirrorSourceJump = document.getElementById('mirror-source-jump');
 const fieldSummary = document.getElementById('field-summary');
 const fieldDetail = document.getElementById('field-detail');
 const fieldStatus = document.getElementById('field-status');
@@ -418,6 +418,10 @@ const blockBinding = document.getElementById('block-binding');
 const includeGuard = document.getElementById('include-guard');
 const bindingAddBtn = document.getElementById('binding-add');
 const edgeList = document.getElementById('edge-list');
+const containmentPanel = document.getElementById('containment-panel');
+const containmentList = document.getElementById('containment-list');
+const mirrorPanel = document.getElementById('mirror-panel');
+const mirrorList = document.getElementById('mirror-list');
 const validationList = document.getElementById('validation-list');
 const conflictList = document.getElementById('conflict-list');
 
@@ -454,7 +458,6 @@ const CREATE_NODE_ASPECT_RATIO = 180 / 80;
 // 32px. Create clamps to it; resize/stretch can shrink down to it, but a node
 // already smaller than 32px in some axis can't be shrunk further in that axis.
 const MIN_NODE_SCREEN_PX = 32;
-const MIRROR_DEFAULT_DETAIL = 'This is a mirror of another node. Visit via the mirror relationship for more information.';
 
 const AGENT_MODEL_SETTINGS_KEY = 'angel.agent-model-settings.v1';
 const OPENAI_OAUTH_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
@@ -1043,8 +1046,6 @@ let _getNodeLayerContentImpl = () => ({});
 let _validateContainmentLayerOrderImpl = () => null;
 let _normalizeGraphSchemaImpl = () => {};
 let _getNodesInRectImpl = () => [];
-let _syncContainmentRelationsFromHierarchyImpl = () => {};
-let _syncMirrorRelationsFromNodesImpl = () => {};
 let _getRelationByIdImpl = () => null;
 let _getSelectedEdgeImpl = () => null;
 let _getNodeRelationsImpl = () => [];
@@ -1057,10 +1058,12 @@ let _rectStrictlyContainsRectImpl = () => false;
 let _findSmallestContainerForRectImpl = () => null;
 let _findSmallestStrictContainerForRectImpl = () => null;
 let _recomputeAllContainmentFromGeometryImpl = () => {};
+let _recomputeContainmentForNodesImpl = () => {};
 let _findIntersectionNodesImpl = () => [];
 let _nodeIntersectsAnyImpl = () => false;
 let _areSpatiallyCompatibleImpl = () => true;
 let _findSpatialConflictImpl = () => null;
+let _findSpatialConflictForNodesImpl = () => null;
 let _isPlacementLegalImpl = () => true;
 let _getNodesBoundingRectImpl = () => null;
 let _getSelectionBBoxFromSessionImpl = () => null;
@@ -1204,8 +1207,6 @@ function getNodeLayerContent(...args) { return _getNodeLayerContentImpl(...args)
 function validateContainmentLayerOrder(...args) { return _validateContainmentLayerOrderImpl(...args); }
 function normalizeGraphSchema(...args) { return _normalizeGraphSchemaImpl(...args); }
 function getNodesInRect(...args) { return _getNodesInRectImpl(...args); }
-function syncContainmentRelationsFromHierarchy(...args) { return _syncContainmentRelationsFromHierarchyImpl(...args); }
-function syncMirrorRelationsFromNodes(...args) { return _syncMirrorRelationsFromNodesImpl(...args); }
 function getRelationById(...args) { return _getRelationByIdImpl(...args); }
 function getSelectedEdge(...args) { return _getSelectedEdgeImpl(...args); }
 function getNodeRelations(...args) { return _getNodeRelationsImpl(...args); }
@@ -1218,10 +1219,12 @@ function rectStrictlyContainsRect(...args) { return _rectStrictlyContainsRectImp
 function findSmallestContainerForRect(...args) { return _findSmallestContainerForRectImpl(...args); }
 function findSmallestStrictContainerForRect(...args) { return _findSmallestStrictContainerForRectImpl(...args); }
 function recomputeAllContainmentFromGeometry(...args) { return _recomputeAllContainmentFromGeometryImpl(...args); }
+function recomputeContainmentForNodes(...args) { return _recomputeContainmentForNodesImpl(...args); }
 function findIntersectionNodes(...args) { return _findIntersectionNodesImpl(...args); }
 function nodeIntersectsAny(...args) { return _nodeIntersectsAnyImpl(...args); }
 function areSpatiallyCompatible(...args) { return _areSpatiallyCompatibleImpl(...args); }
 function findSpatialConflict(...args) { return _findSpatialConflictImpl(...args); }
+function findSpatialConflictForNodes(...args) { return _findSpatialConflictForNodesImpl(...args); }
 function isPlacementLegal(...args) { return _isPlacementLegalImpl(...args); }
 function getNodesBoundingRect(...args) { return _getNodesBoundingRectImpl(...args); }
 function getSelectionBBoxFromSession(...args) { return _getSelectionBBoxFromSessionImpl(...args); }
@@ -1343,10 +1346,13 @@ const appShellUI = createAppShellUI({
 const {
   getUnsavedCount,
   isNodeNameAvailable,
-  nextAvailableMirrorName,
+  splitMirrorName,
+  buildMirrorName,
+  localSegmentOf,
+  deriveDefaultMirrorName,
   isMirrorNode,
   syncMirrorNodes,
-} = createGraphHelpers({ nodes });
+} = createGraphHelpers({ nodes, edges });
 
 const {
   deepClone,
@@ -1404,14 +1410,6 @@ function setSingleEdgeSelection(edgeId) {
   state.selectedNodeId = null;
 }
 
-function makeContainmentRelationId(fromId, toId) {
-  return `c_${fromId}_${toId}`;
-}
-
-function makeMirrorRelationId(fromId, toId) {
-  return `m_${fromId}_${toId}`;
-}
-
 let graphLocalHelpers = null;
 
 function getSelectedNodesOrdered() {
@@ -1436,10 +1434,12 @@ _rectStrictlyContainsRectImpl = graphGeometry.rectStrictlyContainsRect;
 _findSmallestContainerForRectImpl = graphGeometry.findSmallestContainerForRect;
 _findSmallestStrictContainerForRectImpl = graphGeometry.findSmallestStrictContainerForRect;
 _recomputeAllContainmentFromGeometryImpl = graphGeometry.recomputeAllContainmentFromGeometry;
+_recomputeContainmentForNodesImpl = graphGeometry.recomputeContainmentForNodes;
 _findIntersectionNodesImpl = graphGeometry.findIntersectionNodes;
 _nodeIntersectsAnyImpl = graphGeometry.nodeIntersectsAny;
 _areSpatiallyCompatibleImpl = graphGeometry.areSpatiallyCompatible;
 _findSpatialConflictImpl = graphGeometry.findSpatialConflict;
+_findSpatialConflictForNodesImpl = graphGeometry.findSpatialConflictForNodes;
 _isPlacementLegalImpl = graphGeometry.isPlacementLegal;
 _getNodesBoundingRectImpl = graphGeometry.getNodesBoundingRect;
 _getSelectionBBoxFromSessionImpl = graphGeometry.getSelectionBBoxFromSession;
@@ -1452,10 +1452,7 @@ const graphDomain = createGraphDomain({
   state,
   nodes,
   edges,
-  containmentRelations,
-  mirrorRelations,
   conflicts,
-  isMirrorNode,
   getNodeLodLevel,
   rectContainsRect,
   getNodeById: nodeIndex.getNodeById,
@@ -1472,8 +1469,6 @@ _getNodeLayerContentImpl = graphDomain.getNodeLayerContent;
 _validateContainmentLayerOrderImpl = graphDomain.validateContainmentLayerOrder;
 _normalizeGraphSchemaImpl = graphDomain.normalizeGraphSchema;
 _getNodesInRectImpl = graphDomain.getNodesInRect;
-_syncContainmentRelationsFromHierarchyImpl = graphDomain.syncContainmentRelationsFromHierarchy;
-_syncMirrorRelationsFromNodesImpl = graphDomain.syncMirrorRelationsFromNodes;
 _getRelationByIdImpl = graphDomain.getRelationById;
 _getSelectedEdgeImpl = graphDomain.getSelectedEdge;
 _getNodeRelationsImpl = graphDomain.getNodeRelations;
@@ -1495,6 +1490,7 @@ const editClipboardCommands = createEditClipboardCommands({
   getSelectedEdge,
   pushHistory,
   recomputeAllContainmentFromGeometry,
+  recomputeContainmentForNodes,
   validateContainmentLayerOrder,
   getDescendantNodes,
   deepClone,
@@ -1544,6 +1540,7 @@ const editNodeCreateCommand = createEditNodeCreateCommand({
   isPlacementLegal,
   validateContainmentLayerOrder,
   recomputeAllContainmentFromGeometry,
+  recomputeContainmentForNodes,
   getAllLayerIds: () => state.projectTemplate.layers,
 });
 _normalizeRectFromLrtbImpl = editNodeCreateCommand.normalizeRectFromLrtb;
@@ -1585,12 +1582,13 @@ const editMirrorUpdateCommands = createEditMirrorUpdateCommands({
   normalizeColorIndex,
   nextNodeId,
   isNodeNameAvailable,
-  nextAvailableMirrorName,
+  deriveDefaultMirrorName,
+  buildMirrorName,
+  splitMirrorName,
   isPlacementLegal,
   validateContainmentLayerOrder,
   recomputeAllContainmentFromGeometry,
   getNodeLayerContent,
-  MIRROR_DEFAULT_DETAIL,
   normalizeResourceBindings,
   normalizeRectFromLrtb,
   findNodeByNameForRequestedLayers,
@@ -1603,6 +1601,7 @@ const editMirrorUpdateCommands = createEditMirrorUpdateCommands({
 });
 _normalizeMirrorTopLeftImpl = editMirrorUpdateCommands.normalizeMirrorTopLeft;
 _createMirrorByParamsImpl = editMirrorUpdateCommands.createMirrorByParams;
+const createMirrorNode = editMirrorUpdateCommands.createMirrorNode;
 _isPlacementLegalForNodeImpl = editMirrorUpdateCommands.isPlacementLegalForNode;
 _updateNodeByParamsImpl = editMirrorUpdateCommands.updateNodeByParams;
 _getNodeByNameStrictImpl = editMirrorUpdateCommands.getNodeByNameStrict;
@@ -2068,14 +2067,10 @@ const closeAgentModelSettingsModal = () => agentModelSettingsController.closeMod
 const agentToolContext = createAgentToolContext({
   nodes,
   edges,
-  containmentRelations,
-  mirrorRelations,
   parseLayerIndex,
   isNodeVisibleInLayer,
   isEdgeVisibleInLayer,
   getNodeLayerContent,
-  syncContainmentRelationsFromHierarchy,
-  syncMirrorRelationsFromNodes,
   getCreatedLayer,
   getAllLayerIds: () => state.projectTemplate.layers,
 });
@@ -2129,7 +2124,7 @@ const autoLayoutByParams = createAutoLayoutTool({
   edges,
   normalizeRectFromLrtb,
   pushHistory,
-  recomputeAllContainmentFromGeometry,
+  recomputeContainmentForNodes,
   validateContainmentLayerOrder,
   updateTopbar,
   rebuildSidebar,
@@ -2236,8 +2231,6 @@ function buildLiveMindmapOverview() {
     edgeCount: edges.length,
     nodes: nodes.map(projectOne),
     edges: edges.map((e) => ({ from: String(e?.from || ''), to: String(e?.to || ''), kind: String(e?.kind || '') })),
-    containmentRelations,
-    mirrorRelations,
   };
 }
 
@@ -3086,7 +3079,7 @@ const interactionPointerUp = createInteractionPointerUp({
   CREATE_NODE_CAMERA_WIDTH_RATIO,
   CREATE_NODE_ASPECT_RATIO,
   MIN_NODE_SCREEN_PX,
-  MIRROR_DEFAULT_DETAIL,
+  createMirrorNode,
   pushTransformPreviewCheckpoint,
   pushHistory,
   restoreSnapshot,
@@ -3099,18 +3092,18 @@ const interactionPointerUp = createInteractionPointerUp({
   getActiveLayerIndex,
   getAllLayerIds: () => state.projectTemplate.layers,
   recomputeAllContainmentFromGeometry,
+  recomputeContainmentForNodes,
   validateContainmentLayerOrder,
   setSingleNodeSelection,
   updateTopbar,
   rebuildSidebar,
   renderRightPanel,
   findSpatialConflict,
+  findSpatialConflictForNodes,
   getDescendantNodes,
   getCanvasPointer,
   hitTest,
   buildEdgeAnchors,
-  getNodeLayerContent,
-  nextAvailableMirrorName,
   normalizeColorIndex,
   setStatus,
   render,
@@ -3212,6 +3205,8 @@ const canvasRendererOverlays = createCanvasRendererOverlays({
 _renderCanvasOverlaysImpl = canvasRendererOverlays.renderCanvasOverlays;
 
 const canvasRendererScene = createCanvasRendererScene({
+  state,
+  canvas,
   nodes,
   edges,
   refreshHierarchyMeta,
@@ -3418,6 +3413,10 @@ const inspectorUI = createInspectorUI({
     edgeEditor,
     blockBindingPanel,
     edgeList,
+    containmentPanel,
+    containmentList,
+    mirrorPanel,
+    mirrorList,
     validationList,
     edgeIdField,
     edgeRelationField,
@@ -3429,6 +3428,8 @@ const inspectorUI = createInspectorUI({
     edgeDescriptionField,
     edgeVisualControls,
     fieldName,
+    mirrorSourceRow,
+    mirrorSourceJump,
     fieldSummary,
     fieldDetail,
     fieldStatus,
@@ -3512,8 +3513,6 @@ const projectIOController = createProjectIOController({
   state,
   nodes,
   edges,
-  containmentRelations,
-  mirrorRelations,
   deepClone,
   replaceArray,
   normalizeGraphSchema,

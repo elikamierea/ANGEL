@@ -3,10 +3,7 @@ export function createGraphDomain(deps) {
     state,
     nodes,
     edges,
-    containmentRelations,
-    mirrorRelations,
     conflicts,
-    isMirrorNode,
     getNodeLodLevel,
     rectContainsRect,
     getNodeById,
@@ -140,6 +137,31 @@ export function createGraphDomain(deps) {
           .filter((entry) => entry.path.length > 0);
       }
     }
+
+    // Legacy migration: mirror names used to be `${source}_Mirror${i}`. The scheme
+    // is now `${source}@${local}`, with the '@' prefix bound to the source. Rebuild
+    // any mirror whose name lacks the '@' separator (older projects); names that
+    // already use '@' are left to the live prefix-cascade in syncMirrorNodes.
+    const nodeById = new Map(nodes.map((n) => [n.id, n]));
+    const takenNames = new Set(nodes.map((n) => String(n.name || '')));
+    for (const n of nodes) {
+      if (!(n.isMirror && n.mirrorOfId)) continue;
+      if (String(n.name || '').includes('@')) continue;
+      const source = nodeById.get(n.mirrorOfId);
+      const srcName = String(source?.name || 'Node');
+      const legacy = /_Mirror(\d+)$/.exec(String(n.name || ''));
+      let k = legacy ? Number(legacy[1]) || 1 : 1;
+      let candidate = `${srcName}@${k}`;
+      while (takenNames.has(candidate)) {
+        k += 1;
+        candidate = `${srcName}@${k}`;
+      }
+      takenNames.delete(String(n.name || ''));
+      n.name = candidate;
+      n.dirty = true;
+      takenNames.add(candidate);
+    }
+
     for (const e of edges) {
       e.createdLayer = getCreatedLayer(e.createdLayer);
     }
@@ -154,87 +176,22 @@ export function createGraphDomain(deps) {
     });
   }
 
-  function makeContainmentRelationId(fromId, toId) {
-    return `c_${fromId}_${toId}`;
-  }
-
-  function makeMirrorRelationId(fromId, toId) {
-    return `m_${fromId}_${toId}`;
-  }
-
-  function syncContainmentRelationsFromHierarchy() {
-    const prevById = new Map(containmentRelations.map((r) => [r.id, r]));
-    containmentRelations.length = 0;
-
-    for (const child of nodes) {
-      if (!child.parentId) continue;
-      const id = makeContainmentRelationId(child.parentId, child.id);
-      const prev = prevById.get(id);
-
-      containmentRelations.push({
-        id,
-        from: child.parentId,
-        to: child.id,
-        type: 'containment',
-        relationExpr: prev?.relationExpr || 'A contains B',
-        label: prev?.label || 'contains',
-        description: prev?.description || '',
-        pathStyle: prev?.pathStyle || 'straight',
-        strokeStyle: prev?.strokeStyle || 'solid',
-        arrowFrom: Boolean(prev?.arrowFrom),
-        arrowTo: Boolean(prev?.arrowTo),
-      });
-    }
-  }
-
-  function syncMirrorRelationsFromNodes() {
-    const prevById = new Map(mirrorRelations.map((r) => [r.id, r]));
-    mirrorRelations.length = 0;
-
-    for (const n of nodes) {
-      if (!isMirrorNode(n)) continue;
-      const id = makeMirrorRelationId(n.id, n.mirrorOfId);
-      const prev = prevById.get(id);
-      mirrorRelations.push({
-        id,
-        from: n.id,
-        to: n.mirrorOfId,
-        type: 'mirror',
-        relationExpr: prev?.relationExpr || 'A is a mirror of B',
-        label: prev?.label || 'mirror',
-        description: prev?.description || '',
-      });
-    }
-  }
-
   function getRelationById(relationId) {
     if (!relationId) return null;
-    return edges.find((e) => e.id === relationId)
-      || containmentRelations.find((r) => r.id === relationId)
-      || mirrorRelations.find((r) => r.id === relationId)
-      || null;
+    return edges.find((e) => e.id === relationId) || null;
   }
 
   function getSelectedEdge() {
-    syncContainmentRelationsFromHierarchy();
-    syncMirrorRelationsFromNodes();
     return getRelationById(state.selectedEdgeId);
   }
 
   function getNodeRelations(nodeId) {
-    syncContainmentRelationsFromHierarchy();
-    syncMirrorRelationsFromNodes();
     const activeLayer = getActiveLayerIndex();
-    return [...edges, ...containmentRelations, ...mirrorRelations]
+    // Containment (parent/child) and mirror links are surfaced separately
+    // (contains/containedBy and source/mirrors jump lists), not as relations here.
+    return edges
       .filter((r) => r.from === nodeId || r.to === nodeId)
-      .filter((r) => {
-        if (r.type === 'containment' || r.type === 'mirror') {
-          const fromNode = nodes.find((n) => n.id === r.from);
-          const toNode = nodes.find((n) => n.id === r.to);
-          return Boolean(fromNode && toNode && isNodeVisibleInLayer(fromNode, activeLayer) && isNodeVisibleInLayer(toNode, activeLayer));
-        }
-        return isEdgeVisibleInLayer(r, activeLayer);
-      });
+      .filter((r) => isEdgeVisibleInLayer(r, activeLayer));
   }
 
   function getEdgeRelationExpr(edge) {
@@ -258,10 +215,6 @@ export function createGraphDomain(deps) {
     validateContainmentLayerOrder,
     normalizeGraphSchema,
     getNodesInRect,
-    makeContainmentRelationId,
-    makeMirrorRelationId,
-    syncContainmentRelationsFromHierarchy,
-    syncMirrorRelationsFromNodes,
     getRelationById,
     getSelectedEdge,
     getNodeRelations,

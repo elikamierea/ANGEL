@@ -8,7 +8,7 @@ export function createInteractionPointerUp(deps) {
     CREATE_NODE_CAMERA_WIDTH_RATIO,
     CREATE_NODE_ASPECT_RATIO,
     MIN_NODE_SCREEN_PX,
-    MIRROR_DEFAULT_DETAIL,
+    createMirrorNode,
     pushTransformPreviewCheckpoint,
     pushHistory,
     restoreSnapshot,
@@ -20,19 +20,17 @@ export function createInteractionPointerUp(deps) {
     findSmallestContainerForRect,
     getActiveLayerIndex,
     getAllLayerIds,
-    recomputeAllContainmentFromGeometry,
+    recomputeContainmentForNodes,
     validateContainmentLayerOrder,
     setSingleNodeSelection,
     updateTopbar,
     rebuildSidebar,
     renderRightPanel,
-    findSpatialConflict,
+    findSpatialConflictForNodes,
     getDescendantNodes,
     getCanvasPointer,
     hitTest,
     buildEdgeAnchors,
-    getNodeLayerContent,
-    nextAvailableMirrorName,
     normalizeColorIndex,
     setStatus,
     render,
@@ -142,7 +140,7 @@ export function createInteractionPointerUp(deps) {
         };
         pushHistory();
         nodes.push(node);
-        recomputeAllContainmentFromGeometry();
+        recomputeContainmentForNodes([node]);
         const layerOrderConflict = validateContainmentLayerOrder();
         if (layerOrderConflict) {
           if (history.past.length > 0) {
@@ -168,6 +166,9 @@ export function createInteractionPointerUp(deps) {
 
       if (movedRoots.length > 0 && state.dragMoved) {
         const snap = state.nodeDragSnapshot?.byId;
+        // Every node in the drag snapshot (roots + their descendants) translated,
+        // so it is the exact set of geometry changes for the incremental passes.
+        const movedNodes = [];
         if (snap) {
           for (const [id, info] of snap.entries()) {
             const cur = nodes.find((n) => n.id === id);
@@ -175,6 +176,7 @@ export function createInteractionPointerUp(deps) {
             cur.x = info.x + state.nodeDragPreviewDx;
             cur.y = info.y + state.nodeDragPreviewDy;
             cur.parentId = info.parentId;
+            movedNodes.push(cur);
           }
         }
 
@@ -189,7 +191,7 @@ export function createInteractionPointerUp(deps) {
           root.parentId = legalContainer ? legalContainer.id : null;
         }
 
-        const conflict = invalidContainment ? null : findSpatialConflict(nodes);
+        const conflict = invalidContainment ? null : findSpatialConflictForNodes(movedNodes);
         if (invalidContainment || conflict) {
           if (snap) {
             for (const [id, info] of snap.entries()) {
@@ -205,7 +207,7 @@ export function createInteractionPointerUp(deps) {
             ? 'Move cancelled: illegal containment target'
             : `Move cancelled: illegal overlap (${conflict.a.name} vs ${conflict.b.name})`);
         } else {
-          recomputeAllContainmentFromGeometry();
+          recomputeContainmentForNodes(movedNodes);
           const layerOrderConflict = validateContainmentLayerOrder();
           if (layerOrderConflict) {
             if (snap) {
@@ -237,7 +239,7 @@ export function createInteractionPointerUp(deps) {
         .filter(Boolean);
 
       if (resizedNodes.length > 0 && state.dragMoved) {
-        const conflict = findSpatialConflict(nodes);
+        const conflict = findSpatialConflictForNodes(resizedNodes);
         if (conflict) {
           if (history.past.length > 0) {
             const prev = history.past.pop();
@@ -312,59 +314,25 @@ export function createInteractionPointerUp(deps) {
     if (state.dragMode === 'mirror-create' && state.mirrorCreateSourceNodeId) {
       const source = nodes.find((n) => n.id === state.mirrorCreateSourceNodeId);
       if (source) {
-        const id = nextNodeId();
         const rect = {
           x: state.mirrorCreateWorldX - source.w / 2,
           y: state.mirrorCreateWorldY - source.h / 2,
           w: source.w,
           h: source.h,
         };
-
-        if (!isPlacementLegal(rect)) {
-          setStatus('Mirror creation cancelled: illegal overlap');
-        } else {
-          pushHistory();
-          const sourceLayerData = getNodeLayerContent(source);
-          const sourceProgress = sourceLayerData.progress || sourceLayerData.synopsis || sourceLayerData.summary || '';
-          const mirrorNode = {
-            id,
-            name: nextAvailableMirrorName(source.name),
-            progress: sourceProgress,
-            detail: MIRROR_DEFAULT_DETAIL,
-            status: sourceLayerData.status || 'active',
-            createdLayer: state.activeLayer,
-            layerContent: buildLayerContentSeed(sourceProgress, MIRROR_DEFAULT_DETAIL, sourceLayerData.status || 'active'),
-            tags: ['mirror'],
-            blocked: false,
-            dirty: true,
-            unbound: true,
-            revision: 1,
-            colorIndex: normalizeColorIndex(source.colorIndex),
-            x: rect.x,
-            y: rect.y,
-            w: rect.w,
-            h: rect.h,
-            parentId: null,
-            childCount: 0,
-            isMirror: true,
-            mirrorOfId: source.id,
-            validation: [{ level: 'info', message: `Mirror of ${source.name}` }],
-          };
-          nodes.push(mirrorNode);
-
-          recomputeAllContainmentFromGeometry();
-          const layerOrderConflict = validateContainmentLayerOrder();
-          if (layerOrderConflict) {
-            nodes.pop();
-            setStatus(`Mirror creation cancelled: child layer cannot be earlier than parent (${layerOrderConflict.child.name} -> ${layerOrderConflict.parent.name})`);
-          } else {
-            setSingleNodeSelection(mirrorNode.id);
-            setStatus(`Created mirror: ${mirrorNode.name}`);
-            updateTopbar();
-            rebuildSidebar();
-            renderRightPanel();
-            state.suppressClick = true;
-          }
+        // Shared construction point; a drag-created mirror starts with empty,
+        // independent content for its local role. Throws on illegal placement /
+        // layer-order conflict (and rolls back its own history entry).
+        try {
+          const mirrorNode = createMirrorNode({ source, rect, layerId: state.activeLayer });
+          setSingleNodeSelection(mirrorNode.id);
+          setStatus(`Created mirror: ${mirrorNode.name}`);
+          updateTopbar();
+          rebuildSidebar();
+          renderRightPanel();
+          state.suppressClick = true;
+        } catch (err) {
+          setStatus(`Mirror creation cancelled: ${err?.message || 'error'}`);
         }
       }
     }

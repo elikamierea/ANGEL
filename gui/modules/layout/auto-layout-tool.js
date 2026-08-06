@@ -67,7 +67,7 @@ export function createAutoLayoutTool(deps) {
     edges,
     normalizeRectFromLrtb,
     pushHistory,
-    recomputeAllContainmentFromGeometry,
+    recomputeContainmentForNodes,
     validateContainmentLayerOrder,
     updateTopbar,
     rebuildSidebar,
@@ -259,16 +259,18 @@ export function createAutoLayoutTool(deps) {
       }
     }
 
-    for (const node of nodes) {
-      const candidate = nextById.get(node.id);
-      const rectA = candidate || { x: node.x, y: node.y, w: node.w, h: node.h };
+    // A conflict can only involve a repositioned (selected) node, so iterate the
+    // selection against every node (O(|selected|·n)) instead of scanning all
+    // pairs (O(n²)). Every "touches selection" pair is still covered: if only the
+    // other node is selected, it is reached when that node is the outer one.
+    // Rects use ELK's projected positions (nextById) for selected nodes; others
+    // keep their current geometry.
+    for (const node of selectedNodes) {
+      const rectA = nextById.get(node.id) || { x: node.x, y: node.y, w: node.w, h: node.h };
 
       for (const other of nodes) {
         if (other.id === node.id) continue;
         const rectB = nextById.get(other.id) || { x: other.x, y: other.y, w: other.w, h: other.h };
-
-        const touchesSelection = selectedIdSet.has(node.id) || selectedIdSet.has(other.id);
-        if (!touchesSelection) continue;
 
         if (!areSpatiallyCompatible(rectA, rectB)) {
           throw new Error(`auto_layout conflict: illegal overlap (${node.name} vs ${other.name})`);
@@ -375,7 +377,9 @@ export function createAutoLayoutTool(deps) {
       }
     }
 
-    recomputeAllContainmentFromGeometry();
+    // ELK only repositions selectedNodes (see the position apply loop above);
+    // every other node is untouched, so incremental recompute suffices.
+    recomputeContainmentForNodes(selectedNodes);
 
     const layerOrderConflict = validateContainmentLayerOrder();
     if (layerOrderConflict) {

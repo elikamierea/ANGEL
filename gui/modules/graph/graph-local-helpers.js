@@ -84,9 +84,17 @@ export function createGraphLocalHelpers(deps) {
 
   function refreshHierarchyMeta() {
     const depthMap = computeNodeDepthMap();
+    // Count children in a single pass (parentId -> count) instead of scanning all
+    // nodes per node. This runs every frame, so the old O(n²) here dominated
+    // rendering on large graphs.
+    const childCounts = new Map();
+    for (const n of nodes) {
+      const pid = n.parentId;
+      if (pid != null) childCounts.set(pid, (childCounts.get(pid) || 0) + 1);
+    }
     for (const n of nodes) {
       n.depth = depthMap.get(n.id) || 0;
-      n.childCount = nodes.filter((x) => x.parentId === n.id).length;
+      n.childCount = childCounts.get(n.id) || 0;
     }
     return depthMap;
   }

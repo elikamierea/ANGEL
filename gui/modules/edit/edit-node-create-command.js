@@ -18,7 +18,7 @@ export function createEditNodeCreateCommand(deps) {
     findSmallestContainerForRect,
     isPlacementLegal,
     validateContainmentLayerOrder,
-    recomputeAllContainmentFromGeometry,
+    recomputeContainmentForNodes,
     getAllLayerIds,
   } = deps;
 
@@ -62,6 +62,7 @@ export function createEditNodeCreateCommand(deps) {
   function createNodeAtPositionByParams(params = {}) {
     const name = String(params.name || '').trim();
     if (!name) throw new Error('name is required');
+    if (name.includes('@')) throw new Error("'@' is reserved for mirror names; use create_mirror instead");
     if (!isNodeNameAvailable(name)) throw new Error(`duplicate node name: ${name}`);
 
     const rect = normalizeRectFromLrtb(params.lrtb);
@@ -107,7 +108,7 @@ export function createEditNodeCreateCommand(deps) {
 
     pushHistory();
     nodes.push(node);
-    recomputeAllContainmentFromGeometry();
+    recomputeContainmentForNodes([node]);
     const layerOrderConflict = validateContainmentLayerOrder();
     if (layerOrderConflict) {
       if (history.past.length > 0) {

@@ -79,6 +79,62 @@ export function createGraphGeometry(deps) {
     return null;
   }
 
+  // Conflict check limited to a changed subset. A new overlap after an edit must
+  // involve at least one changed node (every stationary pair was already legal),
+  // so we test each changed node against the rest — O(|subset|·n) instead of the
+  // all-pairs O(n²) of findSpatialConflict. Symmetric subset pairs may be tested
+  // twice; harmless. Returns the same { a, b } shape.
+  function findSpatialConflictForNodes(subset) {
+    const list = Array.isArray(subset) ? subset.filter(Boolean) : [];
+    for (const a of list) {
+      for (const b of nodes) {
+        if (a.id === b.id) continue;
+        if (!areSpatiallyCompatible(a, b)) return { a, b };
+      }
+    }
+    return null;
+  }
+
+  // Incremental containment: recompute parentId only for the nodes whose geometry
+  // changed (create/move) plus the nodes those changes can affect, instead of
+  // rediscovering the whole tree (recomputeAllContainmentFromGeometry, O(n²)).
+  //
+  // A changed node C can only alter the parent of:
+  //   - itself (its own smallest strict container may differ),
+  //   - nodes that currently point at C as their parent (C may have moved away),
+  //   - nodes that C's new rect now strictly contains (C may have become their
+  //     new smallest container).
+  // Every other node keeps its parent: its geometry and its smallest container
+  // are both unchanged. All changed rects must already be applied to `nodes`.
+  function recomputeContainmentForNodes(changedNodes) {
+    const changed = Array.isArray(changedNodes) ? changedNodes.filter(Boolean) : [];
+    if (changed.length === 0) return;
+    const changedIds = new Set(changed.map((n) => n.id));
+
+    const affected = new Map(); // id -> node, de-duplicated
+    for (const c of changed) affected.set(c.id, c);
+    for (const n of nodes) {
+      if (affected.has(n.id)) continue;
+      if (changedIds.has(n.parentId)) {
+        affected.set(n.id, n); // its container moved/changed
+        continue;
+      }
+      for (const c of changed) {
+        if (c.id !== n.id && rectStrictlyContainsRect(c, n)) {
+          affected.set(n.id, n); // a changed node now wraps it
+          break;
+        }
+      }
+    }
+
+    const nextParent = new Map();
+    for (const n of affected.values()) {
+      const container = findSmallestStrictContainerForRect(n, n.id);
+      nextParent.set(n.id, container ? container.id : null);
+    }
+    for (const n of affected.values()) n.parentId = nextParent.get(n.id) || null;
+  }
+
   function isPlacementLegal(candidateRect, ignoreNodeIds = new Set()) {
     for (const n of nodes) {
       if (ignoreNodeIds.has(n.id)) continue;
@@ -177,10 +233,12 @@ export function createGraphGeometry(deps) {
     findSmallestContainerForRect,
     findSmallestStrictContainerForRect,
     recomputeAllContainmentFromGeometry,
+    recomputeContainmentForNodes,
     findIntersectionNodes,
     nodeIntersectsAny,
     areSpatiallyCompatible,
     findSpatialConflict,
+    findSpatialConflictForNodes,
     isPlacementLegal,
     getNodesBoundingRect,
     getSelectionBBoxFromSession,

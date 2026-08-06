@@ -36,6 +36,10 @@ export function createInspectorUI(deps) {
     edgeEditor,
     blockBindingPanel,
     edgeList,
+    containmentPanel,
+    containmentList,
+    mirrorPanel,
+    mirrorList,
     validationList,
     edgePathStyleField,
     edgeStrokeStyleField,
@@ -44,6 +48,8 @@ export function createInspectorUI(deps) {
     edgeDescriptionField,
     edgeVisualControls,
     fieldName,
+    mirrorSourceRow,
+    mirrorSourceJump,
     fieldSummary,
     fieldDetail,
     fieldStatus,
@@ -122,14 +128,19 @@ export function createInspectorUI(deps) {
     editorForm.classList.toggle('hidden', !hasNodeSelection);
     edgeEditor.classList.toggle('hidden', !selectedEdge);
     blockBindingPanel.classList.toggle('hidden', !hasNodeSelection);
+    // Default hidden unless a single node is selected; the populate path below
+    // refines each to also hide when that node has no such links.
+    if (containmentPanel) containmentPanel.classList.toggle('hidden', !hasNodeSelection);
+    if (mirrorPanel) mirrorPanel.classList.toggle('hidden', !hasNodeSelection);
     if (multiEditorForm) multiEditorForm.classList.toggle('hidden', selectedCount <= 1);
 
     if (selectedCount > 1) {
       emptySelection.classList.remove('hidden');
       emptySelection.innerHTML = `<strong>${t('inspector.multiSelect.title', { count: selectedCount })}</strong><p>${t('inspector.multiSelect.body')}</p>`;
       if (multiFieldColorIndex) {
-        // Editable nodes only (mirrors derive color from their source; conflicted nodes are locked).
-        const editable = getSelectedNodesOrdered().filter((n) => !isMirrorNode(n) && !hasConflict(n.id));
+        // Editable nodes only (conflicted nodes are locked). Mirrors have their
+        // own independent color, so they participate like normal nodes.
+        const editable = getSelectedNodesOrdered().filter((n) => !hasConflict(n.id));
         const first = editable[0];
         const displayIdx = normalizeColorIndex(first ? first.colorIndex : 0);
         multiFieldColorIndex.value = String(displayIdx);
@@ -171,8 +182,8 @@ export function createInspectorUI(deps) {
         edgeArrowToField.checked = Boolean(selectedEdge.arrowTo);
         edgeDescriptionField.value = selectedEdge.description || '';
 
-        const visualRelation = selectedEdge.type !== 'containment' && selectedEdge.type !== 'mirror';
-        edgeVisualControls.classList.toggle('hidden', !visualRelation);
+        // Only real edges are selectable now, so visual styling always applies.
+        edgeVisualControls.classList.remove('hidden');
 
         const li = document.createElement('li');
         li.innerHTML = `
@@ -210,7 +221,36 @@ export function createInspectorUI(deps) {
     }
 
     const layerData = getNodeLayerContent(selected);
-    fieldName.value = selected.name;
+    const mirrorNode = isMirrorNode(selected);
+    const source = mirrorNode ? nodes.find((n) => n.id === selected.mirrorOfId) : null;
+
+    // A mirror edits only its local name segment; the "{source}@" prefix is
+    // locked and shown in a separate read-only row with a jump-to-source button.
+    // Everything else (progress/detail/status/color) is edited like a normal node.
+    if (mirrorNode) {
+      const at = String(selected.name || '').indexOf('@');
+      fieldName.value = at >= 0 ? selected.name.slice(at + 1) : selected.name;
+    } else {
+      fieldName.value = selected.name;
+    }
+    fieldName.disabled = false;
+    fieldSummary.disabled = false;
+
+    if (mirrorSourceRow) mirrorSourceRow.classList.toggle('hidden', !mirrorNode);
+    if (mirrorNode && mirrorSourceJump) {
+      mirrorSourceJump.textContent = source ? source.name : String(selected.name || '').split('@')[0];
+      mirrorSourceJump.onclick = source
+        ? () => {
+          setSingleNodeSelection(source.id);
+          focusNode(source);
+          setStatus(t('inspector.status.selectedNodeFromRelationEndpoint', { name: source.name }));
+          render();
+          rebuildSidebar();
+          renderRightPanel();
+        }
+        : null;
+    }
+
     fieldSummary.value = layerData.progress;
     fieldDetail.value = layerData.detail;
     if (fieldStatus) fieldStatus.value = layerData.status;
@@ -220,10 +260,6 @@ export function createInspectorUI(deps) {
       updateColorIndexSwatch(selected.colorIndex);
     }
     fieldExpectedRevision.value = String(selected.revision);
-
-    const mirrorNode = isMirrorNode(selected);
-    fieldName.disabled = mirrorNode;
-    fieldSummary.disabled = mirrorNode;
 
     const conflict = hasConflict(selected.id);
     if (conflict) {
@@ -360,6 +396,52 @@ export function createInspectorUI(deps) {
 
         edgeList.appendChild(li);
       }
+    }
+
+    // Containment and mirror links are out-of-band from edges, so each lives in
+    // its own panel (peers of Edge Connections), not inside the edge list.
+    // Double-click a row to move the camera to the target.
+    const addJumpRow = (listEl, target, labelKey) => {
+      if (!listEl) return;
+      const li = document.createElement('li');
+      li.className = 'mirror-jump-item';
+      li.innerHTML = `<div><strong>${t(labelKey)}</strong> = <span class="edge-endpoint" data-node-id="${target.id}">${target.name}</span></div>`;
+      const jump = () => {
+        setSingleNodeSelection(target.id);
+        focusNode(target);
+        setStatus(t('inspector.status.selectedNodeFromRelationEndpoint', { name: target.name }));
+        render();
+        rebuildSidebar();
+        renderRightPanel();
+      };
+      li.ondblclick = jump;
+      const ep = li.querySelector('.edge-endpoint');
+      if (ep) ep.ondblclick = (evt) => { evt.stopPropagation(); jump(); };
+      listEl.appendChild(li);
+    };
+
+    // Containment (geometry-derived parent/child).
+    if (containmentList) containmentList.innerHTML = '';
+    const parentNode = selected.parentId ? nodes.find((n) => n.id === selected.parentId) : null;
+    if (parentNode) addJumpRow(containmentList, parentNode, 'inspector.field.containedBy');
+    for (const child of nodes.filter((n) => n.parentId === selected.id)) {
+      addJumpRow(containmentList, child, 'inspector.field.contains');
+    }
+    if (containmentPanel) {
+      containmentPanel.classList.toggle('hidden', !(containmentList && containmentList.childElementCount > 0));
+    }
+
+    // Mirror discovery: a mirror shows a jump-to-source row; a source lists its mirrors.
+    if (mirrorList) mirrorList.innerHTML = '';
+    if (mirrorNode) {
+      if (source) addJumpRow(mirrorList, source, 'inspector.field.mirrorOf');
+    } else {
+      for (const m of nodes.filter((n) => n.isMirror && n.mirrorOfId === selected.id)) {
+        addJumpRow(mirrorList, m, 'inspector.field.mirror');
+      }
+    }
+    if (mirrorPanel) {
+      mirrorPanel.classList.toggle('hidden', !(mirrorList && mirrorList.childElementCount > 0));
     }
 
     if (validationList) {
@@ -509,23 +591,41 @@ export function createInspectorUI(deps) {
     const mirrorNode = isMirrorNode(selected);
     const src = mirrorNode ? nodes.find((n) => n.id === selected.mirrorOfId) : null;
     const currentLayerData = getNodeLayerContent(selected);
-    const srcLayerData = src ? getNodeLayerContent(src) : null;
 
-    const nextName = mirrorNode ? (src?.name || selected.name) : (fieldName.value.trim() || selected.name);
-    const nextProgress = mirrorNode ? (srcLayerData?.progress || srcLayerData?.synopsis || srcLayerData?.summary || '') : fieldSummary.value.trim();
+    // Content (progress/detail/status/color) is edited like a normal node, even
+    // for a mirror. For a mirror the Name field holds only the local segment, so
+    // rebuild the locked "{source}@{local}" name; a stray '@' is rejected.
+    const restoreNameField = () => {
+      const at = String(selected.name || '').indexOf('@');
+      fieldName.value = mirrorNode && at >= 0 ? selected.name.slice(at + 1) : selected.name;
+    };
+
+    let nextName;
+    if (mirrorNode) {
+      const local = fieldName.value.trim();
+      if (local.includes('@')) {
+        setStatus(t('inspector.status.saveBlockedDuplicateNodeName', { name: local }));
+        restoreNameField();
+        return;
+      }
+      const srcName = String(src?.name || String(selected.name || '').split('@')[0] || '');
+      nextName = local ? `${srcName}@${local}` : selected.name;
+    } else {
+      nextName = fieldName.value.trim() || selected.name;
+      if (nextName.includes('@')) {
+        setStatus(t('inspector.status.saveBlockedDuplicateNodeName', { name: nextName }));
+        restoreNameField();
+        return;
+      }
+    }
+    const nextProgress = fieldSummary.value.trim();
     const nextDetail = fieldDetail.value.trim();
     const nextStatus = fieldStatus ? fieldStatus.value : (currentLayerData.status || 'active');
-    const nextColorIndex = mirrorNode
-      ? normalizeColorIndex(src?.colorIndex)
-      : normalizeColorIndex(fieldColorIndex ? fieldColorIndex.value : selected.colorIndex);
+    const nextColorIndex = normalizeColorIndex(fieldColorIndex ? fieldColorIndex.value : selected.colorIndex);
 
-    const duplicateNameBlocked = mirrorNode
-      ? !isNodeNameAvailable(nextName, selected.id) && !(src && String(src.name || '') === nextName)
-      : !isNodeNameAvailable(nextName, selected.id);
-
-    if (duplicateNameBlocked) {
+    if (!isNodeNameAvailable(nextName, selected.id)) {
       setStatus(t('inspector.status.saveBlockedDuplicateNodeName', { name: nextName }));
-      fieldName.value = selected.name;
+      restoreNameField();
       return;
     }
 
@@ -560,9 +660,9 @@ export function createInspectorUI(deps) {
 
   function applyMultiNodeColorChange() {
     if (!multiFieldColorIndex) return;
-    // Batch color only applies to editable nodes: skip mirrors (color follows their
-    // source) and conflicted nodes (locked), matching single-node save behavior.
-    const editable = getSelectedNodesOrdered().filter((n) => !isMirrorNode(n) && !hasConflict(n.id));
+    // Batch color applies to every non-conflicted node; mirrors have their own
+    // independent color and are included like normal nodes.
+    const editable = getSelectedNodesOrdered().filter((n) => !hasConflict(n.id));
     if (editable.length === 0) return;
 
     const nextColorIndex = normalizeColorIndex(multiFieldColorIndex.value);

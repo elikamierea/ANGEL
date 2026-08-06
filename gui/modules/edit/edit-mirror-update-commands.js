@@ -1,3 +1,5 @@
+import { MIRROR_NAME_SEP } from '../graph-helpers.js';
+
 export function createEditMirrorUpdateCommands(deps) {
   const {
     state,
@@ -15,12 +17,13 @@ export function createEditMirrorUpdateCommands(deps) {
     normalizeColorIndex,
     nextNodeId,
     isNodeNameAvailable,
-    nextAvailableMirrorName,
+    deriveDefaultMirrorName,
+    buildMirrorName,
+    splitMirrorName,
     isPlacementLegal,
     validateContainmentLayerOrder,
     recomputeAllContainmentFromGeometry,
     getNodeLayerContent,
-    MIRROR_DEFAULT_DETAIL,
     normalizeResourceBindings,
     normalizeRectFromLrtb,
     findNodeByNameForRequestedLayers,
@@ -46,49 +49,39 @@ export function createEditMirrorUpdateCommands(deps) {
     return { left, top };
   }
 
-  function createMirrorByParams(params = {}) {
-    const sourceName = String(params.source || '').trim();
-    if (!sourceName) throw new Error('source is required');
-
-    const source = findNodeByNameForRequestedLayers(params.layer, sourceName);
-    if (!source) throw new Error(`source node not found: ${sourceName}`);
-
-    const { left, top } = normalizeMirrorTopLeft(params);
-    const rect = { x: left, y: top, w: source.w, h: source.h };
-
+  // Single construction point for mirror nodes, shared by the agent/MCP tool
+  // and the pointer-drag UI. A mirror is an ordinary node with three extras:
+  //   - isMirror + mirrorOfId : the (rename-robust) link to its source
+  //   - name `${source.name}@${local}` : source-bound prefix + local segment
+  //   - fully independent content (describes its local role, never synced)
+  // Throws on illegal placement / duplicate name / layer-order conflict, rolling
+  // back the pushed history entry so callers never see a partial node.
+  function createMirrorNode({ source, rect, layerId, localName = '', content = {} }) {
+    if (!source) throw new Error('source is required');
     if (!isPlacementLegal(rect)) {
       throw new Error('illegal overlap (must be disjoint or containment)');
     }
 
-    const layerId = params.layer ? normalizeLayerId(params.layer) : state.activeLayer;
+    const requested = String(localName || '').trim();
+    if (requested.includes(MIRROR_NAME_SEP)) {
+      throw new Error(`mirror local name cannot contain '${MIRROR_NAME_SEP}'`);
+    }
 
-    const defaultName = nextAvailableMirrorName(source.name);
-    const name = String(params.name || defaultName).trim();
-    if (!name) throw new Error('name cannot be empty');
-    if (!isNodeNameAvailable(name)) throw new Error(`duplicate node name: ${name}`);
+    const progress = String(content.progress || '').trim();
+    const detail = String(content.detail || '').trim();
+    const status = String(content.status || '').trim() || 'active';
+    const colorIndex = normalizeColorIndex(
+      content.colorIndex != null ? content.colorIndex : source.colorIndex,
+    );
+    const resourceBindings = normalizeResourceBindings(content.resourceBindings);
 
-    const sourceLayerData = getNodeLayerContent(source, layerId);
-    const progress = Object.prototype.hasOwnProperty.call(params, 'progress')
-      ? String(params.progress || '').trim()
-      : String(sourceLayerData.progress || sourceLayerData.synopsis || sourceLayerData.summary || '');
-    const detail = Object.prototype.hasOwnProperty.call(params, 'detail')
-      ? String(params.detail || '').trim()
-      : MIRROR_DEFAULT_DETAIL;
-    const status = Object.prototype.hasOwnProperty.call(params, 'status')
-      ? (String(params.status || '').trim() || 'active')
-      : String(sourceLayerData.status || 'active');
-    const colorIndexInput = (Object.prototype.hasOwnProperty.call(params, 'colorIndex') || Object.prototype.hasOwnProperty.call(params, 'color'))
-      ? (params.colorIndex != null ? params.colorIndex : params.color)
-      : source.colorIndex;
-    const colorIndex = normalizeColorIndex(colorIndexInput);
-    const resourceBindings = normalizeResourceBindings(params.resourceBindings);
+    const rollback = () => { if (history.past.length > 0) restoreSnapshot(history.past.pop()); };
 
     const id = nextNodeId();
-
     pushHistory();
     const mirrorNode = {
       id,
-      name,
+      name: `${MIRROR_NAME_SEP}mirror-pending-${id}`, // placeholder, replaced after containment
       progress,
       detail,
       status,
@@ -115,14 +108,64 @@ export function createEditMirrorUpdateCommands(deps) {
 
     nodes.push(mirrorNode);
     recomputeAllContainmentFromGeometry();
+
+    // The default local name depends on the geometric parent, which is only
+    // known after containment recompute.
+    const parentNode = mirrorNode.parentId ? nodes.find((n) => n.id === mirrorNode.parentId) : null;
+    if (requested) {
+      const explicit = buildMirrorName(source.name, requested);
+      if (!isNodeNameAvailable(explicit, mirrorNode.id)) {
+        rollback();
+        throw new Error(`duplicate node name: ${explicit}`);
+      }
+      mirrorNode.name = explicit;
+    } else {
+      mirrorNode.name = deriveDefaultMirrorName(source.name, parentNode);
+    }
+
     const layerOrderConflict = validateContainmentLayerOrder();
     if (layerOrderConflict) {
-      if (history.past.length > 0) {
-        const prev = history.past.pop();
-        restoreSnapshot(prev);
-      }
+      rollback();
       throw new Error(`child layer cannot be earlier than parent (${layerOrderConflict.child.name} -> ${layerOrderConflict.parent.name})`);
     }
+
+    return mirrorNode;
+  }
+
+  // Resolve an incoming mirror name param (bare local segment, or a full
+  // `${source.name}@${local}` whose prefix must match) down to its local segment.
+  function resolveMirrorLocalName(rawName, source) {
+    if (rawName == null) return '';
+    const raw = String(rawName).trim();
+    const parts = splitMirrorName(raw);
+    if (!parts) return raw;
+    if (parts.source !== source.name) {
+      throw new Error(`mirror name prefix must equal source name "${source.name}"`);
+    }
+    return parts.local;
+  }
+
+  function createMirrorByParams(params = {}) {
+    const sourceName = String(params.source || '').trim();
+    if (!sourceName) throw new Error('source is required');
+
+    const source = findNodeByNameForRequestedLayers(params.layer, sourceName);
+    if (!source) throw new Error(`source node not found: ${sourceName}`);
+
+    const { left, top } = normalizeMirrorTopLeft(params);
+    const rect = { x: left, y: top, w: source.w, h: source.h };
+    const layerId = params.layer ? normalizeLayerId(params.layer) : state.activeLayer;
+
+    const has = (k) => Object.prototype.hasOwnProperty.call(params, k);
+    const content = {};
+    if (has('progress')) content.progress = params.progress;
+    if (has('detail')) content.detail = params.detail;
+    if (has('status')) content.status = params.status;
+    if (has('colorIndex') || has('color')) content.colorIndex = params.colorIndex != null ? params.colorIndex : params.color;
+    if (has('resourceBindings')) content.resourceBindings = params.resourceBindings;
+
+    const localName = resolveMirrorLocalName(params.name, source);
+    const mirrorNode = createMirrorNode({ source, rect, layerId, localName, content });
 
     setSingleNodeSelection(mirrorNode.id);
     updateTopbar();
@@ -166,8 +209,25 @@ export function createEditMirrorUpdateCommands(deps) {
     const node = exact || fallback;
     if (!node) throw new Error(`node not found: ${targetName}`);
 
-    const nextName = params.name != null ? String(params.name || '').trim() : String(node.name || '');
+    let nextName = params.name != null ? String(params.name || '').trim() : String(node.name || '');
     if (!nextName) throw new Error('name cannot be empty');
+    // A mirror's source-bound prefix is locked: renames may only touch the local
+    // segment after '@'. Accept either a bare local segment or a full name whose
+    // prefix still matches the source.
+    if (node.isMirror && node.mirrorOfId && params.name != null) {
+      const source = nodes.find((n) => n.id === node.mirrorOfId);
+      const srcName = String(source?.name || '');
+      const parts = splitMirrorName(nextName);
+      if (parts) {
+        if (parts.source !== srcName) {
+          throw new Error(`cannot change mirror source prefix (name must stay "${srcName}${MIRROR_NAME_SEP}…")`);
+        }
+      } else {
+        nextName = buildMirrorName(srcName, nextName);
+      }
+    } else if (nextName.includes(MIRROR_NAME_SEP)) {
+      throw new Error(`'${MIRROR_NAME_SEP}' is reserved for mirror names`);
+    }
     if (!isNodeNameAvailable(nextName, node.id)) throw new Error(`duplicate node name: ${nextName}`);
 
     const nextRect = params.lrtb ? normalizeRectFromLrtb(params.lrtb) : { x: node.x, y: node.y, w: node.w, h: node.h };
@@ -260,6 +320,7 @@ export function createEditMirrorUpdateCommands(deps) {
 
   return {
     normalizeMirrorTopLeft,
+    createMirrorNode,
     createMirrorByParams,
     isPlacementLegalForNode,
     updateNodeByParams,

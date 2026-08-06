@@ -51,14 +51,18 @@ export function createFileTreeUI(deps) {
     sprites: { labelKey: 'sidebar.tab.sprites', roots: ['src/assets/sprites', 'src/assets/sprite'], grouped: true, groupKind: 'sprite' },
     fonts: { labelKey: 'sidebar.tab.fonts', roots: ['src/assets/fonts', 'src/assets/font'], grouped: true, groupKind: 'font' },
     audio: { labelKey: 'sidebar.tab.audio', roots: ['src/assets/audio'], grouped: false },
+    texts: { labelKey: 'sidebar.tab.texts', roots: ['src/assets/texts', 'src/assets/text'], grouped: false },
+    reference: { labelKey: 'sidebar.tab.reference', roots: ['reference'], grouped: false },
     other: { labelKey: 'sidebar.tab.other', roots: ['src/assets/other'], grouped: false },
   };
 
   const TAB_KEY_ALIASES = {
     sprite: 'sprites',
     font: 'fonts',
+    text: 'texts',
+    references: 'reference',
   };
-  const TAB_ORDER = ['all', 'sprites', 'fonts', 'audio', 'other'];
+  const TAB_ORDER = ['all', 'sprites', 'fonts', 'audio', 'texts', 'reference', 'other'];
 
   function normalizeTabKey(rawTab) {
     const tab = TAB_KEY_ALIASES[rawTab] || rawTab;

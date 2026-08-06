@@ -316,8 +316,13 @@ body.resizing-left-panel * {
 .panel-card h4 { margin: 0 0 8px; }
 .panel-card ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .panel-card li { border: 1px solid var(--panel-item-border); border-radius: 6px; padding: 6px; font-size: 12px; }
-#edge-list li { cursor: pointer; }
+#edge-list li,
+#containment-list li,
+#mirror-list li { cursor: pointer; }
+.mirror-jump-item { border-style: dashed; }
 .edge-endpoint { text-decoration: underline; cursor: pointer; }
+.mirror-source-row { display: flex; align-items: center; gap: 6px; font-size: 12px; margin: -4px 0 8px; }
+.mirror-source-jump { background: none; border: none; padding: 0; font: inherit; color: var(--accent, #6db3ff); text-decoration: underline; cursor: pointer; }
 .panel-card label { display: grid; gap: 4px; font-size: 12px; margin-bottom: 8px; }
 .panel-card label.inline-check { display: flex; align-items: center; gap: 8px; }
 .panel-card label.inline-check input[type="checkbox"] { margin: 0; }

@@ -100,7 +100,7 @@ Note: box selection already supports including **LOD hidden** nodes, to avoid mi
 - **N + Left-drag**: create a node, with drag deciding the initial size
 - **N + Left-click**: create a default-size node centered on the click position
 - **C + Left-drag (starting from a node)**: create an edge
-- **M + Left-drag (starting from a node)**: create a mirror node
+- **M + Left-drag (starting from a node)**: create a mirror node, named `source@local` with content independent from the source (deleting the source deletes its mirrors)
 
 ## 4. Editing and transforms
 
@@ -178,6 +178,10 @@ Automatic layout is usually good for organizing structure first, but it will not
 - `path style`
 - `stroke style`
 - `arrow`
+
+### Containment and mirror links
+
+- Containment (which node contains which) and mirror links are not edges. The inspector shows them in their own **Containment** and **Mirrors** panels; double-click an entry to jump to that node.
 
 ### Resource references
 

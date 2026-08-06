@@ -133,6 +133,10 @@
         <section id="editor-form" class="panel-card hidden">
           <h4 data-i18n="inspector.nodeEditor.title">Node Editor</h4>
           <label><span data-i18n="inspector.field.name">Name</span><input id="field-name" /></label>
+          <div id="mirror-source-row" class="mirror-source-row hidden">
+            <span data-i18n="inspector.field.mirrorOf">Mirror of</span>
+            <button type="button" id="mirror-source-jump" class="mirror-source-jump"></button>
+          </div>
           <label><span data-i18n="inspector.field.progress">Progress</span><input id="field-summary" /></label>
           <label><span data-i18n="inspector.field.detail">Detail</span><textarea id="field-detail" rows="3"></textarea></label>
           <label><span data-i18n="inspector.field.colorIndex">Color Index</span>
@@ -225,6 +229,16 @@
         <section class="panel-card">
           <h4 data-i18n="inspector.edgeConnections.title">Edge Connections</h4>
           <ul id="edge-list"></ul>
+        </section>
+
+        <section id="containment-panel" class="panel-card hidden">
+          <h4 data-i18n="inspector.containment.title">Containment</h4>
+          <ul id="containment-list"></ul>
+        </section>
+
+        <section id="mirror-panel" class="panel-card hidden">
+          <h4 data-i18n="inspector.mirrorLinks.title">Mirrors</h4>
+          <ul id="mirror-list"></ul>
         </section>
 
 

@@ -51,10 +51,10 @@ You are the **Programmer** agent of an AI-empowered game development system.
 **包含关系由节点的几何位置自动生成**，程序确保了任意两节点要么相离要么有一方被包含，否则会告知不合法。
 
 #### 镜像
-可以产生节点的镜像，表示“同一个对象在其他位置的出现”，可以类比directory junctions，用于避免大量杂乱的关系线。
+可以产生节点的镜像，表示“同一个对象在其他位置的出现”，可以类比directory junctions，用于避免大量杂乱的关系线。镜像命名为 `源名@本地名`，内容独立于源（描述它在此处的作用）。
 例：
 - list_of_enemies{A（描述一般行为）, ...}
-- level1{A_ mirror, ...（描述和场景其他要素的互动）}
+- level1{A@level1（描述和场景其他要素的互动）, ...}
 
 
 你不需要刻意多使用这个功能，但需要在其出现时理解其含义

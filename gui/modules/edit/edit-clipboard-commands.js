@@ -12,6 +12,7 @@ export function createEditClipboardCommands(deps) {
     getSelectedEdge,
     pushHistory,
     recomputeAllContainmentFromGeometry,
+    recomputeContainmentForNodes,
     validateContainmentLayerOrder,
     getDescendantNodes,
     deepClone,
@@ -34,10 +35,25 @@ export function createEditClipboardCommands(deps) {
     const selectedNode = getSelectedNode();
     const selectedRelation = getSelectedEdge();
 
+    // Deleting a source that still has mirrors elsewhere cascades: confirm, then
+    // delete those mirrors (and their edges) together with the source.
+    const removeIds = new Set(selectedNodeIds);
+    if (selectedNodeIds.length > 0) {
+      const cascadeMirrors = nodes.filter((n) => n.isMirror && n.mirrorOfId
+        && removeIds.has(n.mirrorOfId) && !removeIds.has(n.id));
+      if (cascadeMirrors.length > 0) {
+        const ok = window.confirm(`This node has ${cascadeMirrors.length} mirror(s). Deleting it will also delete them. Continue?`);
+        if (!ok) {
+          setStatus('Delete cancelled');
+          return;
+        }
+        for (const m of cascadeMirrors) removeIds.add(m.id);
+      }
+    }
+
     if (selectedNodeIds.length > 0 || selectedRelation) pushHistory();
 
     if (selectedNodeIds.length > 0) {
-      const removeIds = new Set(selectedNodeIds);
       const oldParentById = new Map(nodes.map((n) => [n.id, n.parentId || null]));
 
       for (let i = edges.length - 1; i >= 0; i--) {
@@ -73,14 +89,6 @@ export function createEditClipboardCommands(deps) {
         edges.splice(edgeIndex, 1);
         state.selectedEdgeId = null;
         setStatus(`Deleted edge: ${selectedRelation.id}`);
-      } else if (selectedRelation.type === 'containment') {
-        const child = nodes.find((n) => n.id === selectedRelation.to);
-        if (child) {
-          child.parentId = null;
-          child.dirty = true;
-          state.selectedEdgeId = null;
-          setStatus(`Removed containment: ${selectedRelation.id}`);
-        }
       }
     } else {
       setStatus('Nothing selected to delete');
@@ -101,11 +109,18 @@ export function createEditClipboardCommands(deps) {
     const node = exact || fallback;
     if (!node) throw new Error(`node not found: ${targetName}`);
 
-    state.selectedNodeIds = new Set([node.id]);
+    // Deleting a source that still has mirrors requires explicit cascade so the
+    // caller acknowledges the mirrors (and their edges) are removed too.
+    const mirrors = nodes.filter((n) => n.isMirror && n.mirrorOfId === node.id);
+    if (mirrors.length > 0 && !(params.cascade === true || params.force === true)) {
+      throw new Error(`node "${node.name}" has ${mirrors.length} mirror(s); pass cascade:true to delete it together with its mirrors`);
+    }
+
+    state.selectedNodeIds = new Set([node.id, ...mirrors.map((m) => m.id)]);
     state.selectedNodeId = node.id;
     state.selectedEdgeId = null;
     deleteSelectedElement();
-    return { deleted: true, targetName: String(node.name || '') };
+    return { deleted: true, targetName: String(node.name || ''), deletedMirrors: mirrors.length };
   }
 
   function deleteEdgeByParams(params = {}) {
@@ -299,7 +314,9 @@ export function createEditClipboardCommands(deps) {
     pushHistory();
     nodes.push(...pastedNodes);
     edges.push(...pastedEdges);
-    recomputeAllContainmentFromGeometry();
+    // Only the freshly pasted nodes changed geometry; incremental recompute
+    // avoids the O(n²) full rediscovery over the whole graph.
+    recomputeContainmentForNodes(pastedNodes);
 
     const layerOrderConflict = validateContainmentLayerOrder();
     if (layerOrderConflict) {

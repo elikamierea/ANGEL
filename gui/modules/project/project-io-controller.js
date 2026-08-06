@@ -3,8 +3,6 @@ export function createProjectIOController(deps) {
     state,
     nodes,
     edges,
-    containmentRelations,
-    mirrorRelations,
     deepClone,
     replaceArray,
     normalizeGraphSchema,
@@ -81,8 +79,6 @@ export function createProjectIOController(deps) {
       graph: {
         nodes: nodes.map(toSerializableNode),
         edges: deepClone(edges),
-        containmentRelations: deepClone(containmentRelations),
-        mirrorRelations: deepClone(mirrorRelations),
       },
       ui: {
         activeLayer: state.activeLayer,
@@ -193,8 +189,6 @@ export function createProjectIOController(deps) {
       graph: {
         nodes: [],
         edges: [],
-        containmentRelations: [],
-        mirrorRelations: [],
       },
       ui: {
         activeLayer: template.defaultActiveLayer,
@@ -353,8 +347,6 @@ export function createProjectIOController(deps) {
 
     replaceArray(nodes, deepClone(nextNodes));
     replaceArray(edges, deepClone(nextEdges));
-    replaceArray(containmentRelations, Array.isArray(graph.containmentRelations) ? deepClone(graph.containmentRelations) : []);
-    replaceArray(mirrorRelations, Array.isArray(graph.mirrorRelations) ? deepClone(graph.mirrorRelations) : []);
 
     normalizeGraphSchema();
 

@@ -106,15 +106,46 @@ function readGraph() {
     layers: Array.isArray(doc?.project?.template?.layers) ? doc.project.template.layers.map(String) : [],
     nodes: Array.isArray(graph.nodes) ? graph.nodes : [],
     edges: Array.isArray(graph.edges) ? graph.edges : [],
-    containmentRelations: Array.isArray(graph.containmentRelations) ? graph.containmentRelations : [],
-    mirrorRelations: Array.isArray(graph.mirrorRelations) ? graph.mirrorRelations : [],
   };
+}
+
+// Build O(1) lookup tables for the structural links in a single pass over all
+// nodes, so projecting the whole graph is O(n) instead of O(n²) (each node used
+// to scan allNodes four times). See projectNode for how these are consumed.
+//   - byId:        id -> node            (parent / mirror-source resolution)
+//   - childNames:  parentId -> [names]   (direct children of a container)
+//   - mirrorNames: mirrorOfId -> [names] (facets pointing at a source)
+function buildNodeIndex(nodes) {
+  const byId = new Map();
+  const childNames = new Map();
+  const mirrorNames = new Map();
+  const push = (map, key, name) => {
+    const arr = map.get(key);
+    if (arr) arr.push(name);
+    else map.set(key, [name]);
+  };
+  for (const n of nodes) {
+    if (n?.id != null) byId.set(String(n.id), n);
+  }
+  for (const n of nodes) {
+    const pid = String(n?.parentId || '');
+    if (pid) push(childNames, pid, String(n?.name || ''));
+    if (n?.isMirror && n?.mirrorOfId) push(mirrorNames, String(n.mirrorOfId), String(n?.name || ''));
+  }
+  return { byId, childNames, mirrorNames };
 }
 
 // Project one node's per-layer content into a compact, faithful shape. The node
 // model carries layerContent[layerId] = { progress, detail, status, ... }
 // (see gui/modules/graph/graph-domain.js ensureNodeLayerFields).
-function projectNode(node, layers) {
+//
+// Structural links are out-of-band from edges, resolved via the shared index
+// (see buildNodeIndex):
+//   - containment (geometry-derived parentId): `containedBy` (parent name) and
+//     `contains` (direct child names).
+//   - mirror (isMirror + mirrorOfId): `mirrorOf` (source name) on a mirror, and
+//     `mirrors` (facet names) on a source.
+function projectNode(node, layers, index) {
   const perLayer = {};
   const lc = (node && node.layerContent && typeof node.layerContent === 'object') ? node.layerContent : {};
   for (const layerId of layers) {
@@ -125,27 +156,35 @@ function projectNode(node, layers) {
       status: String(item.status || node?.status || 'active'),
     };
   }
+  const parent = node?.parentId ? index.byId.get(String(node.parentId)) : null;
+  const contains = index.childNames.get(String(node?.id)) || [];
+  const isMirror = Boolean(node?.isMirror && node?.mirrorOfId);
+  const source = isMirror ? index.byId.get(String(node.mirrorOfId)) : null;
+  const mirrors = isMirror ? [] : (index.mirrorNames.get(String(node?.id)) || []);
   return {
     id: String(node?.id || ''),
     name: String(node?.name || ''),
     x: Number(node?.x) || 0,
     y: Number(node?.y) || 0,
     parentId: node?.parentId ? String(node.parentId) : null,
+    ...(parent ? { containedBy: String(parent.name || '') } : {}),
+    ...(contains.length ? { contains } : {}),
+    ...(isMirror ? { mirrorOf: String(source?.name || '') } : {}),
+    ...(mirrors.length ? { mirrors: mirrors.map((m) => String(m?.name || '')) } : {}),
     perLayer,
   };
 }
 
 function toolGetMindmap() {
   const g = readGraph();
+  const index = buildNodeIndex(g.nodes);
   return {
     project: g.projectName,
     layers: g.layers,
     nodeCount: g.nodes.length,
     edgeCount: g.edges.length,
-    nodes: g.nodes.map((n) => projectNode(n, g.layers)),
+    nodes: g.nodes.map((n) => projectNode(n, g.layers, index)),
     edges: g.edges.map((e) => ({ from: String(e?.from || ''), to: String(e?.to || ''), kind: String(e?.kind || '') })),
-    containmentRelations: g.containmentRelations,
-    mirrorRelations: g.mirrorRelations,
   };
 }
 
@@ -157,13 +196,13 @@ function toolGetNode(args) {
   const node = g.nodes.find((n) => (id && String(n?.id) === id) || (name && String(n?.name) === name));
   if (!node) throw new Error(`No node found matching ${id ? `id=${id}` : `name=${name}`}.`);
   // Return the full raw node plus the per-layer projection for convenience.
-  return { node, projected: projectNode(node, g.layers) };
+  return { node, projected: projectNode(node, g.layers, buildNodeIndex(g.nodes)) };
 }
 
 const TOOLS = [
   {
     name: 'get_mindmap',
-    description: 'Read the ANGEL project mindmap (saved graph). Returns layers, all nodes with their per-layer name/progress/detail/status, edges, and containment/mirror relations. Use this to understand the project structure before doing work.',
+    description: 'Read the ANGEL project mindmap (saved graph). Returns layers, all nodes with their per-layer name/progress/detail/status, and edges. Structural links are shown per node, not as edges: containment via containedBy (parent name) and contains (direct child names); mirrors via mirrorOf (a mirror\'s source name) and mirrors (a source\'s facet names). Use this to understand the project structure before doing work.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {

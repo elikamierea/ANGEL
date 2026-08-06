@@ -6,14 +6,10 @@ export function createAgentToolContext(deps) {
   const {
     nodes,
     edges,
-    containmentRelations,
-    mirrorRelations,
     parseLayerIndex,
     isNodeVisibleInLayer,
     isEdgeVisibleInLayer,
     getNodeLayerContent,
-    syncContainmentRelationsFromHierarchy,
-    syncMirrorRelationsFromNodes,
     getCreatedLayer,
     getAllLayerIds,
   } = deps;
@@ -195,39 +191,26 @@ export function createAgentToolContext(deps) {
       };
     }
 
-    syncContainmentRelationsFromHierarchy();
-    syncMirrorRelationsFromNodes();
-
     const layerIndex = parseLayerIndex(lid);
-    const visibleIdSet = new Set(visible.map((n) => n.id));
-    const extraRelations = [...containmentRelations, ...mirrorRelations].filter((r) => (
-      visibleIdSet.has(r.from) && visibleIdSet.has(r.to)
-    ));
-    const visibleEdges = edges.filter((e) => isEdgeVisibleInLayer(e, layerIndex));
-    const allRelations = [...visibleEdges, ...extraRelations];
-
+    // connectedEdges now holds only real edges. Containment (parent/child) is a
+    // structural fact surfaced as the node's `containedBy` / `contains` fields.
     const nodeById = new Map(visible.map((n) => [n.id, n]));
-    const connectedEdges = allRelations
+    const connectedEdges = edges
+      .filter((e) => isEdgeVisibleInLayer(e, layerIndex))
       .filter((e) => e.from === node.id || e.to === node.id)
       .map((e) => {
         const relatedNodeId = e.from === node.id ? e.to : e.from;
         const relatedNode = nodeById.get(relatedNodeId) || null;
         const relatedLayer = relatedNode ? getNodeLayerContent(relatedNode, lid) : null;
-        const rawType = String(e.type || '').trim().toLowerCase();
-        const normalizedType = rawType === 'containment' || rawType === 'mirror' ? rawType : 'edge';
-        const includeVisualStyle = normalizedType === 'edge';
-        const endpointRole = e.from === node.id ? 'to' : 'from';
-        const endpointKey = endpointRole === 'to' ? 'toNode' : 'fromNode';
+        const endpointKey = e.from === node.id ? 'toNode' : 'fromNode';
         return {
           id: String(e.id || ''),
-          type: normalizedType,
+          type: 'edge',
           description: String(e.description || ''),
-          ...(includeVisualStyle ? {
-            pathStyle: e.pathStyle || null,
-            strokeStyle: e.strokeStyle || null,
-            arrowFrom: Boolean(e.arrowFrom),
-            arrowTo: Boolean(e.arrowTo),
-          } : {}),
+          pathStyle: e.pathStyle || null,
+          strokeStyle: e.strokeStyle || null,
+          arrowFrom: Boolean(e.arrowFrom),
+          arrowTo: Boolean(e.arrowTo),
           [endpointKey]: relatedNode ? {
             name: String(relatedNode.name || ''),
             progress: String(relatedLayer?.progress || relatedLayer?.synopsis || relatedLayer?.summary || relatedNode.progress || relatedNode.synopsis || relatedNode.summary || ''),
@@ -236,12 +219,39 @@ export function createAgentToolContext(deps) {
       });
 
     const content = getNodeLayerContent(node, lid);
+
+    // Containment is out-of-band from edges: the geometry-derived parentId gives
+    // `containedBy` (direct parent) and `contains` (direct children), scoped to
+    // nodes visible in this layer.
+    const parentNode = node.parentId ? nodeById.get(node.parentId) : null;
+    const containedBy = parentNode ? String(parentNode.name || '') : '';
+    const contains = visible.filter((n) => n.parentId === node.id).map((n) => String(n.name || ''));
+
+    // Mirror discovery is out-of-band from edges: a mirror points back to its
+    // source via `mirrorOf`; a source lists its mirrors (facets) via `mirrors`.
+    const isMirror = Boolean(node.isMirror && node.mirrorOfId);
+    const sourceNode = isMirror ? nodes.find((n) => n.id === node.mirrorOfId) : null;
+    const mirrorNodes = isMirror ? [] : nodes.filter((n) => n.isMirror && n.mirrorOfId === node.id);
+    const mirrors = mirrorNodes.map((m) => {
+      const mc = getNodeLayerContent(m, lid);
+      const progress = String(mc?.progress || mc?.synopsis || mc?.summary || m.progress || '').trim();
+      return {
+        name: String(m.name || ''),
+        layer: `L${getCreatedLayer(m.createdLayer)}`,
+        ...(progress ? { progress } : {}),
+      };
+    });
+
     return {
       layer: lid,
       found: true,
       node: {
         name: String(node.name || ''),
         createdLayer: `L${getCreatedLayer(node.createdLayer)}`,
+        ...(containedBy ? { containedBy } : {}),
+        ...(contains.length > 0 ? { contains } : {}),
+        ...(isMirror ? { mirrorOf: String(sourceNode?.name || '') } : {}),
+        ...(mirrors.length > 0 ? { mirrors } : {}),
         progress: String(content?.progress || content?.synopsis || content?.summary || node.progress || node.synopsis || node.summary || ''),
         detail: String(content?.detail || node.detail || ''),
         status: String(content?.status || node.status || 'active'),

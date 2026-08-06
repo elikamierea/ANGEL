@@ -30,7 +30,7 @@ export const SHARED_AGENT_TOOL_SCHEMAS = [
   {
     type: 'function',
     name: 'get_node_detail',
-    description: 'Given node name (and optional layer), return node detail and connected edges. Each edge includes its id for precise follow-up update/delete calls, and uses fromNode/toNode to indicate the other endpoint direction relative to the queried node, plus node progress + lrtb (left/right/top/bottom). resourceBindings reflect the queried layer only (references are per-layer). If layer is omitted, search all layers (L0-L3).',
+    description: 'Given node name (and optional layer), return node detail and connected edges. connectedEdges holds only real edges; each includes its id for precise follow-up update/delete calls, and uses fromNode/toNode to indicate the other endpoint direction relative to the queried node, plus node progress + lrtb (left/right/top/bottom). Structural links are surfaced as node fields, not edges: containedBy (parent name) / contains (direct child names) for containment, and mirrorOf (a mirror\'s source) / mirrors (a source\'s facets) for mirrors. resourceBindings reflect the queried layer only (references are per-layer). If layer is omitted, search all layers (L0-L3).',
     parameters: {
       type: 'object',
       properties: {
@@ -61,7 +61,7 @@ export const SHARED_AGENT_TOOL_SCHEMAS = [
   {
     type: 'function',
     name: 'create_node',
-    description: 'Create a node.',
+    description: 'Create a node. "@" is reserved for mirror names and is rejected here; use create_mirror to make a mirror.',
     parameters: {
       type: 'object',
       properties: {
@@ -142,7 +142,7 @@ export const SHARED_AGENT_TOOL_SCHEMAS = [
   {
     type: 'function',
     name: 'create_mirror',
-    description: 'Create a mirror node from an existing source node. source and lr.left/lr.top are required. Other mirror fields are optional.',
+    description: 'Create a mirror node: a local reference point to an existing source node. The mirror is named "{source}@{local}" and carries its own independent content describing its local role (never synced from the source). Draw edges on the mirror to keep them near their local context. source and lr.left/lr.top are required; other fields are optional.',
     parameters: {
       type: 'object',
       properties: {
@@ -157,7 +157,7 @@ export const SHARED_AGENT_TOOL_SCHEMAS = [
           required: ['left', 'top'],
           additionalProperties: false,
         },
-        name: { type: 'string' },
+        name: { type: 'string', description: 'Local segment only (the part after "@"); the "{source}@" prefix is added automatically and locked to the source. Omit to auto-name from the containing node. Passing a full "{source}@{local}" is accepted only if the prefix matches the source.' },
         progress: { type: 'string' },
         detail: { type: 'string' },
         status: { type: 'string' },
@@ -184,11 +184,12 @@ export const SHARED_AGENT_TOOL_SCHEMAS = [
   {
     type: 'function',
     name: 'delete_node',
-    description: 'Delete a node by name, using the same deletion path as the user UI.',
+    description: 'Delete a node by name, using the same deletion path as the user UI. If the node is the source of one or more mirrors, the call fails unless cascade:true is passed, in which case the source and all its mirrors (and their edges) are deleted together.',
     parameters: {
       type: 'object',
       properties: {
         targetName: { type: 'string' },
+        cascade: { type: 'boolean', description: 'Required to delete a node that still has mirrors; deletes the node together with its mirrors.' },
       },
       required: ['targetName'],
       additionalProperties: false,
