@@ -102,10 +102,14 @@ void draw_sprite(float x, float y, const Sprite& sprite, int frame,
                  float xscale, float yscale,
                  float rotationRad, float alpha);
 
+// skewX / skewY are shear angles in radians; compose order is
+// T(x,y) * R(rotation) * Shear(skew) * S(scale). Skew is only reachable through
+// this Color overload to avoid overload explosion on the shorter forms.
 void draw_sprite(float x, float y, const Sprite& sprite, int frame,
                  float depth,
                  float xscale, float yscale,
-                 float rotationRad, float alpha, Color color);
+                 float rotationRad, float alpha, Color color,
+                 float skewX = 0.0f, float skewY = 0.0f);
 
 void draw_line(float x1, float y1,
                float x2, float y2,

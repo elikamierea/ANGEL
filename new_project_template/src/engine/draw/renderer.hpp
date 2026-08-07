@@ -62,7 +62,8 @@ public:
     void submit_sprite(float x, float y, const Sprite& sprite, int frame,
                        float depth,
                        float xscale = 1.0f, float yscale = 1.0f,
-                       float rotationRad = 0.0f, Color color = {}, float alpha = 1.0f);
+                       float rotationRad = 0.0f, Color color = {}, float alpha = 1.0f,
+                       float skewXRad = 0.0f, float skewYRad = 0.0f);
 
     void submit_line(float x1, float y1,
                      float x2, float y2,

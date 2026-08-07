@@ -107,7 +107,8 @@ void draw_sprite(float x, float y, const Sprite& sprite, int frame,
 void draw_sprite(float x, float y, const Sprite& sprite, int frame,
                  float depth,
                  float xscale, float yscale,
-                 float rotationRad, float alpha, Color color);
+                 float rotationRad, float alpha, Color color,
+                 float skewX = 0.0f, float skewY = 0.0f);
 ```
 
 Preferred mental model:
@@ -124,6 +125,21 @@ Transform semantics:
   - rotation in radians
 - `alpha`
   - multiplied with sprite alpha
+- `skewX` / `skewY`
+  - shear angles in radians, default `0.0f`
+  - only available on the `Color` overload
+  - `skewX` shears horizontally (x offset grows with local y),
+    `skewY` shears vertically
+
+All transforms are applied around the sprite's pivot. The compose order is:
+
+```text
+T(x, y) * R(rotationRad) * Shear(skewX, skewY) * S(xscale, yscale)
+```
+
+That is: scale first, then skew the scaled shape, then rotate the sheared
+result as a rigid body, then translate to `(x, y)`. Rotation and skew therefore
+combine the way a "free transform" tool behaves, not as two independent axes.
 
 Frame index starts from 0.
 

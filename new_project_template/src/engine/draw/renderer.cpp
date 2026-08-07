@@ -1,5 +1,6 @@
 #include "engine/draw/renderer.hpp"
 
+#include "engine/draw/affine.hpp"
 #include "engine/debug/debug_tools.hpp"
 #include "platform/window.hpp"
 
@@ -521,7 +522,8 @@ void Renderer::apply_blend_mode() {
 void Renderer::submit_sprite(float x, float y, const Sprite& sprite, int frame,
                              float depth,
                              float xscale, float yscale,
-                             float rotationRad, Color color, float alpha) {
+                             float rotationRad, Color color, float alpha,
+                             float skewXRad, float skewYRad) {
     if (!m_initialized) {
         return;
     }
@@ -539,6 +541,7 @@ void Renderer::submit_sprite(float x, float y, const Sprite& sprite, int frame,
     const float w = static_cast<float>(frameData.width);
     const float h = static_cast<float>(frameData.height);
 
+    // Corners in local space with the pivot at the origin.
     float lx[4] = {
         -frameData.pivotX,
         w - frameData.pivotX,
@@ -552,20 +555,13 @@ void Renderer::submit_sprite(float x, float y, const Sprite& sprite, int frame,
         h - frameData.pivotY,
     };
 
-    const float c = std::cos(rotationRad);
-    const float s = std::sin(rotationRad);
+    const Affine2D transform = Affine2D::sprite_transform(
+        x, y, xscale, yscale, rotationRad, skewXRad, skewYRad);
     color = sanitize_color(color);
     color.a = std::clamp(color.a * alpha, 0.0f, 1.0f);
 
     for (int i = 0; i < 4; ++i) {
-        float sx = lx[i] * xscale;
-        float sy = ly[i] * yscale;
-
-        float rx = sx * c - sy * s;
-        float ry = sx * s + sy * c;
-
-        lx[i] = x + rx;
-        ly[i] = y + ry;
+        transform.apply(lx[i], ly[i], lx[i], ly[i]);
     }
 
     command.vertices.push_back({lx[0], ly[0], frameData.u0, frameData.v0, color.r, color.g, color.b, color.a});
@@ -1099,15 +1095,10 @@ void Renderer::execute_surface_composite_node(const Renderer::RenderNode& node, 
     float lx[4] = {0.0f, width, width, 0.0f};
     float ly[4] = {0.0f, 0.0f, height, height};
 
-    const float c = std::cos(node.rotationRad);
-    const float s = std::sin(node.rotationRad);
+    const Affine2D transform = Affine2D::sprite_transform(
+        node.x, node.y, node.xscale, node.yscale, node.rotationRad);
     for (int i = 0; i < 4; ++i) {
-        const float sx = lx[i] * node.xscale;
-        const float sy = ly[i] * node.yscale;
-        const float rx = sx * c - sy * s;
-        const float ry = sx * s + sy * c;
-        lx[i] = node.x + rx;
-        ly[i] = node.y + ry;
+        transform.apply(lx[i], ly[i], lx[i], ly[i]);
     }
 
     DrawCommand command{};
