@@ -827,25 +827,33 @@ export function createAssetGeneration(deps) {
   }
 
   async function createReferenceFile() {
-    const sourceFile = referenceFileInput?.files?.[0] || null;
-    if (!sourceFile) throw new Error('Please select a file first.');
+    const sourceFiles = Array.from(referenceFileInput?.files || []);
+    if (!sourceFiles.length) throw new Error('Please select a file first.');
 
     const rawPath = String(referencePathInput?.value || '').trim() || 'reference';
-    const rawName = String(referenceNameInput?.value || '').trim();
-    if (!rawName) throw new Error('Name is required.');
 
     // Reference files live outside src/ (default: reference/), so unlike the asset
     // creators we do NOT force a src/ prefix.
     const path = rawPath.replace(/^\/+/, '').replace(/\\/g, '/');
     if (referencePathInput) referencePathInput.value = path;
-
-    const finalName = ensureNameHasExtension(rawName, sourceFile);
     const normalizedPath = normalizeToolRelativePath(path);
-    const outputRelPath = `${normalizedPath}/${finalName}`;
 
-    await writeBinaryFileByRelativePath(outputRelPath, sourceFile);
+    // The name override only applies when importing a single file; multiple files
+    // each keep their original filename.
+    const nameOverride = sourceFiles.length === 1 ? String(referenceNameInput?.value || '').trim() : '';
+
+    const outputPaths = [];
+    for (const sourceFile of sourceFiles) {
+      const baseName = nameOverride || String(sourceFile.name || '').trim();
+      if (!baseName) throw new Error('Name is required.');
+      const finalName = ensureNameHasExtension(baseName, sourceFile);
+      const outputRelPath = `${normalizedPath}/${finalName}`;
+      await writeBinaryFileByRelativePath(outputRelPath, sourceFile);
+      outputPaths.push(outputRelPath);
+    }
+
     await refreshProjectFileTree(false);
-    return { path: outputRelPath };
+    return { path: outputPaths.join(', '), paths: outputPaths, count: outputPaths.length };
   }
 
   return {

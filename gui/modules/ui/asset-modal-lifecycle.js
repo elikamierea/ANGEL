@@ -119,7 +119,10 @@ export function createAssetModalLifecycle(deps) {
     referenceModal.classList.remove('hidden');
     referenceModal.setAttribute('aria-hidden', 'false');
     if (referencePathInput && !referencePathInput.value) referencePathInput.value = 'reference';
-    if (referenceNameInput) referenceNameInput.value = '';
+    if (referenceNameInput) {
+      referenceNameInput.value = '';
+      referenceNameInput.disabled = false;
+    }
   }
 
   function closeReferenceModal() {

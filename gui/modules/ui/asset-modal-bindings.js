@@ -567,13 +567,24 @@ export function createAssetModalBindings(deps) {
 
     if (referenceFileInput) {
       referenceFileInput.addEventListener('change', () => {
-        const file = referenceFileInput.files?.[0] || null;
-        // Reference files keep their full original name (extension included).
-        if (file && referenceNameInput && !String(referenceNameInput.value || '').trim()) {
-          referenceNameInput.value = String(file.name || '').trim();
+        const files = Array.from(referenceFileInput.files || []);
+        const file = files[0] || null;
+        const multiple = files.length > 1;
+        if (referenceNameInput) {
+          // The name field renames a single file; with multiple files each keeps its
+          // own original name, so disable and clear the override.
+          referenceNameInput.disabled = multiple;
+          if (multiple) {
+            referenceNameInput.value = '';
+          } else if (file && !String(referenceNameInput.value || '').trim()) {
+            // Reference files keep their full original name (extension included).
+            referenceNameInput.value = String(file.name || '').trim();
+          }
         }
         if (referenceNote) {
-          referenceNote.textContent = file ? t('modal.reference.status.loadedFile', { name: file.name }) : t('modal.reference.note');
+          if (!file) referenceNote.textContent = t('modal.reference.note');
+          else if (multiple) referenceNote.textContent = t('modal.reference.status.loadedFiles', { count: files.length });
+          else referenceNote.textContent = t('modal.reference.status.loadedFile', { name: file.name });
         }
       });
     }
@@ -588,8 +599,8 @@ export function createAssetModalBindings(deps) {
 
     if (referenceCreate) {
       referenceCreate.addEventListener('click', async () => {
-        const file = referenceFileInput?.files?.[0] || null;
-        if (!file) {
+        const fileCount = referenceFileInput?.files?.length || 0;
+        if (!fileCount) {
           if (referenceNote) referenceNote.textContent = t('modal.reference.status.noFileSelected');
           setStatus(t('modal.reference.status.noFileSelected'));
           return;
@@ -599,7 +610,9 @@ export function createAssetModalBindings(deps) {
           const result = await createReferenceFile();
           closeReferenceModal();
           if (referenceNameInput) referenceNameInput.value = '';
-          setStatus(t('modal.reference.status.created', { path: result.path }));
+          setStatus(result.count > 1
+            ? t('modal.reference.status.createdMany', { count: result.count })
+            : t('modal.reference.status.created', { path: result.path }));
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error || 'unknown error');
           if (referenceNote) referenceNote.textContent = message;
